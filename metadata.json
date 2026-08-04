@@ -1,0 +1,6 @@
+{
+  "name": "Sadhana Admin",
+  "description": "Vedic Steward administrative dashboard for user management, audio library curation, and revenue treasury.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
