@@ -1,14 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
-/**
- * Supabase Client Configuration & Service Abstraction Layer
- * 
- * Connected to project: https://yzsfbxvygvxcbyipjzjo.supabase.co
- */
-
-export const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://yzsfbxvygvxcbyipjzjo.supabase.co';
-export const supabasePublishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_p00i2t2sjEc__bC7mIc4qw_zNrZPSMD';
-export const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl6c2ZieHZ5Z3Z4Y2J5aXBqempvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ2MjQ2NzQsImV4cCI6MjEwMDIwMDY3NH0.v7Dyoc4fTARnnQDeh2Db1Z_2LHzLfT5AsnF3agNp3m8';
+const supabaseUrl = 'https://yzsfbxvygvxcbyipjzjo.supabase.co';
+const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl6c2ZieHZ5Z3Z4Y2J5aXBqempvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ2MjQ2NzQsImV4cCI6MjEwMDIwMDY3NH0.v7Dyoc4fTARnnQDeh2Db1Z_2LHzLfT5AsnF3agNp3m8';
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 

@@ -161,7 +161,7 @@ CREATE TABLE public.sadhana_practice_log (
   CONSTRAINT sadhana_practice_log_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
 );
 
--- Admin CMS users (separate from app users, no Supabase Auth dependency)
+-- Admin CMS profiles. Passwords are managed exclusively by Supabase Auth.
 CREATE TABLE public.admin_users (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   full_name text NOT NULL,
@@ -174,9 +174,7 @@ CREATE TABLE public.admin_users (
   updated_at timestamp with time zone DEFAULT now(),
   CONSTRAINT admin_users_pkey PRIMARY KEY (id)
 );
--- RLS: no direct table access, all access via SECURITY DEFINER RPCs
--- RPC: register_admin(p_full_name, p_email, p_password, p_mobile, p_role)
--- RPC: login_admin(p_email, p_password)
+-- See supabase/migrations/007_admin_auth.sql for the Auth trigger and RLS policy.
 
 CREATE TABLE public.sadhana_milestones (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),

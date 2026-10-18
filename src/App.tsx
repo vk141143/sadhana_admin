@@ -14,6 +14,7 @@ import { DashboardView } from './views/DashboardView';
 import { UserManagementView } from './views/UserManagementView';
 import { AudioLibraryView } from './views/AudioLibraryView';
 import { SubscriptionsView } from './views/SubscriptionsView';
+import { LibraryView } from './views/LibraryView';
 import { ContentView } from './views/ContentView';
 import { AlbumsView } from './views/AlbumsView';
 import { ScripturesView } from './views/ScripturesView';
@@ -21,9 +22,11 @@ import { FestivalsView } from './views/FestivalsView';
 import { AnalyticsView } from './views/AnalyticsView';
 import { ReportsView, SupportView, SettingsView } from './views/OtherViews';
 import { AuthView } from './views/AuthView';
+import { supabase } from './services/supabaseClient';
 
 import { DailyContentView } from './views/DailyContentView';
 import { BannerImagesView } from './views/BannerImagesView';
+import { NotificationsView } from './views/NotificationsView';
 import { EmotionsView } from './views/cms/EmotionsView';
 import { HealingContentView } from './views/cms/HealingContentView';
 import { UserJourneysView } from './views/cms/UserJourneysView';
@@ -38,7 +41,7 @@ import { RecommendationsView } from './views/cms/RecommendationsView';
 import { SpiritualInsightsView } from './views/cms/SpiritualInsightsView';
 
 export const App: React.FC = () => {
-  const [isAuthenticated, setIsAuthenticated] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentTab, setCurrentTab] = useState<NavigationTab>('dashboard');
   const [searchQuery, setSearchQuery] = useState('');
   const [isOpenMobileSidebar, setIsOpenMobileSidebar] = useState(false);
@@ -173,21 +176,12 @@ export const App: React.FC = () => {
             onAddAudioTrack={handleAddAudioTrack}
           />
         );
+      case 'library':
+        return <LibraryView />;
       case 'users':
         return <UserManagementView />;
       case 'audio':
-        return (
-          <AudioLibraryView
-            albums={albums}
-            tracks={audioTracks}
-            currentTrack={currentTrack}
-            isPlaying={isPlaying}
-            onPlayTrack={handlePlayTrack}
-            onToggleTrackPremium={handleToggleTrackPremium}
-            onCreateAlbum={handleCreateAlbum}
-            onAddTrackToAlbum={handleAddAudioTrack}
-          />
-        );
+        return <AudioLibraryView />;
       case 'subscriptions':
         return <SubscriptionsView />;
       case 'content':
@@ -198,6 +192,8 @@ export const App: React.FC = () => {
         return <DailyContentView />;
       case 'banners':
         return <BannerImagesView />;
+      case 'notifications':
+        return <NotificationsView />;
       case 'emotions':
         return <EmotionsView />;
       case 'healing-content':
@@ -224,15 +220,9 @@ export const App: React.FC = () => {
         return <SpiritualInsightsView />;
 
       case 'albums':
-        return (
-          <AlbumsView
-            albums={albums}
-            onSelectAlbum={() => setCurrentTab('audio')}
-            onPlayTrack={handlePlayTrack}
-          />
-        );
+        return <AlbumsView />;
       case 'scriptures':
-        return <ScripturesView />;
+        return <LibraryView />;
       case 'festivals':
         return <FestivalsView />;
       case 'analytics':
@@ -256,6 +246,7 @@ export const App: React.FC = () => {
   };
 
   const handleLogout = () => {
+    void supabase.auth.signOut();
     setIsAuthenticated(false);
   };
 

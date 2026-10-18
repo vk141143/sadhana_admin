@@ -19,9 +19,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const navItems: { id: NavigationTab; label: string; icon: string; section?: string }[] = [
     { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
+    { id: 'library', label: 'Library', icon: 'menu_book', section: 'User Library' },
     { id: 'users', label: 'Users', icon: 'group' },
-    { id: 'daily-content', label: 'Daily Content', icon: 'auto_awesome', section: 'Content' },
+    { id: 'content', label: 'Content', icon: 'library_books', section: 'Content' },
+    { id: 'daily-content', label: 'Daily Content', icon: 'auto_awesome' },
     { id: 'banners', label: 'Banner Images', icon: 'add_photo_alternate' },
+    { id: 'notifications', label: 'Notifications', icon: 'notifications', section: 'Engagement' },
     { id: 'emotions', label: 'Emotions', icon: 'psychology' },
     { id: 'healing-content', label: 'Healing Content', icon: 'healing' },
     { id: 'user-journeys', label: 'User Journeys', icon: 'auto_stories' },
