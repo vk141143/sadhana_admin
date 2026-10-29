@@ -1,23 +1,19 @@
 import { S3Client, DeleteObjectCommand, GetObjectCommand, PutObjectCommand } from 'npm:@aws-sdk/client-s3@3.1101.0';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { requireAdmin } from '../_shared/requireAdmin.ts';
+import { AccessError } from '../_shared/adminPolicy.ts';
 type Language = { translation: string; meaning: string; explanation: string; example: string };
 type Sloka = { id: string; verse_number: number; sanskrit: { devanagari: string; transliteration: string }; languages: Record<string, Language> };
 type CoreSloka = Omit<Sloka, 'languages'>;
 type Manifest = { corePath: string; languagePaths: Record<string, string> };
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type' };
-const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
+const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
 const prefixFor = (slug: string) => slug.split('-').map(word => word[0]).join('').toUpperCase();
 const readJson = async (r2: S3Client, bucket: string, key: string) => { const object = await r2.send(new GetObjectCommand({ Bucket: bucket, Key: key })); return JSON.parse(await new Response(object.Body!.transformToWebStream()).text()); };
 Deno.serve(async request => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: cors });
+  if (!['POST'].includes(request.method)) return reply({ error: 'Method not allowed.' }, 405);
   try {
-    const auth = request.headers.get('Authorization') || '';
-    const userClient = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, { global: { headers: { Authorization: auth } } });
-    const { data: { user } } = await userClient.auth.getUser();
-    if (!user) return reply({ error: 'Unauthorized.' }, 401);
-    const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
-    const { data: admin } = await db.from('admin_users').select('role,is_active').eq('email', user.email!.toLowerCase()).maybeSingle();
-    if (!admin?.is_active || !['super_admin', 'editor'].includes(admin.role)) return reply({ error: 'Forbidden.' }, 403);
+    const { db, user } = await requireAdmin(request, true);
     const { categoryId, chapterId, slokas, conflictResolution = 'skip' } = await request.json();
     if (!Array.isArray(slokas) || !slokas.length || slokas.length > 10) return reply({ error: 'Expected 1 to 10 slokas.' }, 400);
     const [{ data: category }, { data: chapter }] = await Promise.all([db.from('content_categories').select('slug').eq('id', categoryId).single(), db.from('content_chapters').select('chapter_number').eq('id', chapterId).eq('category_id', categoryId).single()]);
@@ -40,5 +36,5 @@ Deno.serve(async request => {
     await r2.send(new PutObjectCommand({ Bucket: bucket, Key: manifestKey, Body: JSON.stringify({ corePath, languagePaths, content_version: version }), ContentType: 'application/json' }));
     const { error: publishError } = await db.from('content_verses').update({ status: 'Published' }).eq('chapter_id', chapterId).in('verse_number', all.map(v => v.verse_number)); if (publishError) return reply({ error: 'Content is committed; metadata publishing state needs retry.' }, 500);
     return reply({ published: rows.length, corePath, languagePaths, languages });
-  } catch (error) { console.error(error); return reply({ error: 'Failed to publish content.' }, 500); }
+  } catch (error) { if (error instanceof AccessError) return reply({ error: error.message }, error.status); return reply({ error: 'Failed to publish content.' }, 500); }
 });

@@ -3,7 +3,6 @@ import {
   INITIAL_EMOTIONS,
   INITIAL_HEALING_CONTENT,
   INITIAL_USER_JOURNEYS,
-  INITIAL_SADHANA_PRACTICES,
   INITIAL_ACHIEVEMENTS,
   INITIAL_BADGES,
   INITIAL_STREAK_RULES,
@@ -19,7 +18,6 @@ import {
   EmotionItem,
   HealingContentItem,
   UserJourneyItem,
-  SadhanaPracticeItem,
   AchievementItem,
   BadgeItem,
   StreakGlobalRules,
@@ -27,6 +25,7 @@ import {
   DailyChallengeItem,
   GuidedSessionItem,
   MeditationCollectionItem,
+  MeditationLibraryItem,
   RecommendationRuleItem,
   SpiritualInsightItem,
 } from '../types/cmsTypes';
@@ -35,7 +34,6 @@ import {
 mockDB.initTable('emotions', INITIAL_EMOTIONS);
 mockDB.initTable('healing_content', INITIAL_HEALING_CONTENT);
 mockDB.initTable('user_journeys', INITIAL_USER_JOURNEYS);
-mockDB.initTable('sadhana_practices', INITIAL_SADHANA_PRACTICES);
 mockDB.initTable('achievements', INITIAL_ACHIEVEMENTS);
 mockDB.initTable('badges', INITIAL_BADGES);
 mockDB.initTable('streak_milestones', INITIAL_STREAK_MILESTONES);
@@ -80,17 +78,6 @@ export const cmsService = {
       mockDB.update('user_journeys', id, updates),
     delete: async (id: string): Promise<boolean> => mockDB.delete('user_journeys', id),
     deleteMany: async (ids: string[]): Promise<number> => mockDB.deleteMany('user_journeys', ids),
-  },
-
-  // 4. Sadhana Practices Service
-  practices: {
-    getAll: async (): Promise<SadhanaPracticeItem[]> => mockDB.getAll<SadhanaPracticeItem>('sadhana_practices'),
-    create: async (item: Partial<SadhanaPracticeItem>): Promise<SadhanaPracticeItem> =>
-      mockDB.insert('sadhana_practices', item as any),
-    update: async (id: string, updates: Partial<SadhanaPracticeItem>): Promise<SadhanaPracticeItem | null> =>
-      mockDB.update('sadhana_practices', id, updates),
-    delete: async (id: string): Promise<boolean> => mockDB.delete('sadhana_practices', id),
-    deleteMany: async (ids: string[]): Promise<number> => mockDB.deleteMany('sadhana_practices', ids),
   },
 
   // 5. Achievements Service
@@ -154,8 +141,9 @@ export const cmsService = {
 
   // 10. Meditation Library Service
   meditations: {
-    getAll: async (): Promise<MeditationCollectionItem[]> =>
-      mockDB.getAll<MeditationCollectionItem>('meditation_collections'),
+    getAll: async (): Promise<MeditationLibraryItem[]> => {
+      throw new Error('Meditation tracks are not connected to a persistent backend. Collection records cannot be used as audio tracks.');
+    },
     create: async (item: Partial<MeditationCollectionItem>): Promise<MeditationCollectionItem> =>
       mockDB.insert('meditation_collections', item as any),
     update: async (

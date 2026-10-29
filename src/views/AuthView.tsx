@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { supabase } from '../services/supabaseClient';
+import { verifyAdminSession } from '../services/adminSession';
 
 interface AuthViewProps {
   onLoginSuccess: (user: {
@@ -62,30 +63,17 @@ export const AuthView: React.FC<AuthViewProps> = ({
         return;
       }
 
-      const { data: admin, error: adminError } = await supabase
-        .from('admin_users')
-        .select('full_name, email, role, is_active')
-        .eq('id', authData.user.id)
-        .maybeSingle();
-
-      // Fallback: look up by email in case the row was inserted with a mismatched id
-      const { data: adminByEmail } = (!admin && !adminError)
-        ? await supabase.from('admin_users').select('full_name, email, role, is_active').eq('email', normalizedEmail).maybeSingle()
-        : { data: null };
-
-      const profile = admin || adminByEmail;
-
-      if (!profile) {
+      if (!authData.user.email_confirmed_at) {
         await supabase.auth.signOut();
-        setErrorMsg('No admin profile found. Please register first.');
+        setErrorMsg('Please confirm your email before signing in.');
         return;
       }
-
-      onLoginSuccess({
-        name: profile.full_name,
-        email: profile.email,
-        role: profile.role,
-      });
+      try {
+        onLoginSuccess(await verifyAdminSession());
+      } catch (error) {
+        await supabase.auth.signOut();
+        setErrorMsg(error instanceof Error ? error.message : 'Access denied.');
+      }
 
     } catch (err) {
       setErrorMsg('Something went wrong. Please try again.');
@@ -136,45 +124,13 @@ export const AuthView: React.FC<AuthViewProps> = ({
         return;
       }
 
-      // Step 2: Insert admin_users row
-      const { error: insertError } = await supabase
-        .from('admin_users')
-        .insert({
-          id: data.user.id,
-          full_name: normalizedName,
-          email: normalizedEmail,
-          mobile: normalizedMobile,
-          role: 'super_admin',
-          password_hash: '',
-          is_active: true,
-        });
-
-      if (insertError) {
-        console.error('admin_users insert error:', insertError);
-        // Row may already exist — that's fine, continue
-      }
-
-      // Step 3: Sign in immediately
-      const { data: loginData, error: loginError } =
-        await supabase.auth.signInWithPassword({ email: normalizedEmail, password });
-
-      if (loginError || !loginData.user) {
-        // Auth created but email confirmation may be required
-        setSuccessMsg('Account created! Please check your email to confirm, then log in.');
-        setMode('login');
-        setEmail(normalizedEmail);
-        setPassword('');
-        setFullName('');
-        setMobile('');
-        return;
-      }
-
-      // Step 4: Go straight to dashboard
-      onLoginSuccess({
-        name: normalizedName,
-        email: normalizedEmail,
-        role: 'super_admin',
-      });
+      // The database trigger provisions an inactive viewer; the browser never grants roles.
+      await supabase.auth.signOut();
+      setSuccessMsg('Registration received. Confirm your email and ask an existing administrator to approve your access.');
+      setMode('login');
+      setPassword('');
+      setFullName('');
+      setMobile('');
 
     } catch (err) {
       setErrorMsg('Something went wrong. Please try again.');

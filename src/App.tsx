@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { UnavailableModule } from './components/UnavailableModule';
+import { AdminSessionBoundary } from './components/AdminSessionBoundary';
 import { Sidebar } from './components/Sidebar';
 import { TopHeader } from './components/TopHeader';
 import { AudioPlayerBar } from './components/AudioPlayerBar';
@@ -166,16 +168,21 @@ export const App: React.FC = () => {
 
   // Render View Routing
   const renderCurrentView = () => {
+    const pending: Partial<Record<NavigationTab, string>> = {
+      library: 'User Library',
+      emotions: 'Emotions', 'healing-content': 'Healing Content',
+      'user-journeys': 'User Journeys',
+      achievements: 'Achievements', badges: 'Badges', 'streak-system': 'Streak System',
+      'daily-challenges': 'Daily Challenges', 'guided-sessions': 'Guided Sessions',
+      'meditation-library': 'Meditation Library', 'recommendation-engine': 'Recommendation Engine',
+      'spiritual-insights': 'Spiritual Insights',
+    };
+    if (pending[currentTab]) return <UnavailableModule title={pending[currentTab]!} reason={currentTab === 'library'
+      ? 'Customer library access requires a verified customer identity mapping and authorized progress queries. Scripture editing remains available under Scriptures.'
+      : 'The existing screen uses demonstration data or in-memory storage. Persistent domain APIs, authorization and verified data must be integrated before enabling it.'} />;
     switch (currentTab) {
       case 'dashboard':
-        return (
-          <DashboardView
-            audioTracks={audioTracks}
-            onPlayTrack={handlePlayTrack}
-            onNavigateTab={(tab) => setCurrentTab(tab)}
-            onAddAudioTrack={handleAddAudioTrack}
-          />
-        );
+        return <DashboardView />;
       case 'library':
         return <LibraryView />;
       case 'users':
@@ -234,14 +241,7 @@ export const App: React.FC = () => {
       case 'settings':
         return <SettingsView />;
       default:
-        return (
-          <DashboardView
-            audioTracks={audioTracks}
-            onPlayTrack={handlePlayTrack}
-            onNavigateTab={(tab) => setCurrentTab(tab)}
-            onAddAudioTrack={handleAddAudioTrack}
-          />
-        );
+        return <DashboardView />;
     }
   };
 
@@ -251,6 +251,7 @@ export const App: React.FC = () => {
   };
 
   return (
+    <AdminSessionBoundary onExpired={handleLogout}>
     <div className="min-h-screen bg-[#0b1220] text-[#dce2f6] font-sans antialiased selection:bg-[#f2ca50] selection:text-[#3c2f00]">
       {/* Sidebar Navigation */}
       <Sidebar
@@ -274,6 +275,7 @@ export const App: React.FC = () => {
         {renderCurrentView()}
       </main>
     </div>
+    </AdminSessionBoundary>
   );
 };
 

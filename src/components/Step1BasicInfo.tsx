@@ -28,7 +28,7 @@ export const Step1BasicInfo: React.FC<Props> = ({
 }) => {
   const [uploading, setUploading] = useState(false);
 
-  const set = (field: string, value: string) => setFormData({ ...formData, [field]: value });
+  const set = (field: string, value: string | boolean) => setFormData({ ...formData, [field]: value });
 
   // Auto-generate slug from name
   const handleNameChange = (name: string) => {

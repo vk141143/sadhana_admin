@@ -78,26 +78,6 @@ export interface UserJourneyItem {
   completionCount: number;
 }
 
-// 4. Sadhana Practice Interface
-export interface SadhanaPracticeItem {
-  id: string;
-  name: string;
-  category: 'Pranayama' | 'Mantra Chanting' | 'Japa' | 'Dhyana' | 'Kriya' | 'Pooja';
-  duration: string;
-  benefits: string[];
-  instructions: string;
-  difficulty: DifficultyLevel;
-  requiredMaterials: string[];
-  thumbnailUrl: string;
-  audioUrl?: string;
-  videoUrl?: string;
-  images: string[];
-  recommendedTime: RecommendedTimeOfDay;
-  recommendedLevel: DifficultyLevel;
-  status: ContentStatus;
-  completionCount: number;
-}
-
 // 5. Achievement Interface
 export interface AchievementItem {
   id: string;

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { NavigationTab } from '../types';
 import { ADMIN_PROFILE } from '../data/mockData';
 
@@ -17,9 +17,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCloseMobile,
   onLogout,
 }) => {
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const navItems: { id: NavigationTab; label: string; icon: string; section?: string }[] = [
-    { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
-    { id: 'library', label: 'Library', icon: 'menu_book', section: 'User Library' },
+    { id: 'dashboard', label: 'Dashboard', icon: 'dashboard', section: 'Dashboard' },
+    { id: 'library', label: 'User Library', icon: 'menu_book' },
     { id: 'users', label: 'Users', icon: 'group' },
     { id: 'content', label: 'Content', icon: 'library_books', section: 'Content' },
     { id: 'daily-content', label: 'Daily Content', icon: 'auto_awesome' },
@@ -84,6 +85,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
           {onCloseMobile && (
             <button
+              aria-label="Close navigation"
               onClick={onCloseMobile}
               className="md:hidden text-[#d0c5af] hover:text-[#f2ca50] p-1"
             >
@@ -97,17 +99,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {navItems.map((item, idx) => {
             const isActive = currentTab === item.id;
             const showSection = item.section;
+            const section = navItems.slice(0, idx + 1).filter(entry => entry.section).at(-1)!.section!;
+            const hidden = collapsed[section] && !navItems.filter((entry, index) => navItems.slice(0, index + 1).filter(e => e.section).at(-1)?.section === section).some(entry => entry.id === currentTab);
 
             return (
               <React.Fragment key={item.id}>
                 {showSection && (
-                  <div className="pt-5 pb-2 px-4">
+                  <button type="button" aria-expanded={!hidden} onClick={() => setCollapsed(value => ({ ...value, [section]: !value[section] }))} className="w-full text-left pt-5 pb-2 px-4">
                     <span className="text-[11px] font-semibold text-[#d0c5af]/40 uppercase tracking-[0.2em]">
-                      {item.section}
+                      {item.section} {hidden ? '+' : '?'}
                     </span>
-                  </div>
+                  </button>
                 )}
                 <button
+                  hidden={Boolean(hidden)}
+                  style={hidden ? { display: 'none' } : undefined}
+                  aria-current={isActive ? 'page' : undefined}
                   onClick={() => {
                     onSelectTab(item.id);
                     if (onCloseMobile) onCloseMobile();
