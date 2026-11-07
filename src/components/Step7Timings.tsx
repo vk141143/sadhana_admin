@@ -1,3 +1,4 @@
+import { festivalTime } from '../services/festivalValidation';
 import React from 'react';
 import { FestivalOccurrence, CustomTiming } from '../types';
 
@@ -23,7 +24,7 @@ const TimeRange: React.FC<{
       <div>
         <label className={lbl}>Start</label>
         <input type="time" className={ipt}
-          value={(occurrence[startKey] as string)?.slice(11, 16) || ''}
+          value={festivalTime(occurrence[startKey] as string)}
           onChange={e => {
             const base = occurrence.festival_date || new Date().toISOString().split('T')[0];
             set(startKey, e.target.value ? `${base}T${e.target.value}:00+05:30` : null);
@@ -32,7 +33,7 @@ const TimeRange: React.FC<{
       <div>
         <label className={lbl}>End</label>
         <input type="time" className={ipt}
-          value={(occurrence[endKey] as string)?.slice(11, 16) || ''}
+          value={festivalTime(occurrence[endKey] as string)}
           onChange={e => {
             const base = occurrence.festival_date || new Date().toISOString().split('T')[0];
             set(endKey, e.target.value ? `${base}T${e.target.value}:00+05:30` : null);

@@ -1,3 +1,4 @@
+import { festivalTime } from '../services/festivalValidation';
 import React from 'react';
 import { FestivalOccurrence } from '../types';
 
@@ -74,7 +75,7 @@ export const StepFasting: React.FC<Props> = ({ occurrence, setOccurrence }) => {
               <div>
                 <label className={lbl}>Parana Time</label>
                 <input type="time" className={ipt}
-                  value={occurrence.parana_time?.slice(11, 16) || ''}
+                  value={festivalTime(occurrence.parana_time)}
                   onChange={e => {
                     const base = occurrence.festival_date || new Date().toISOString().split('T')[0];
                     set('parana_time', e.target.value ? `${base}T${e.target.value}:00+05:30` : null);

@@ -23,12 +23,19 @@ export interface Chapter {
   updated_at: string;
 }
 
+export type SlokaAudioStatus = 'not_uploaded' | 'uploading' | 'ready' | 'error';
+
 export interface SlokaRecord {
   id: string;
   chapter_id: string;
   verse_number: number;
   verse_id: string;
   json_url: string;
+  audio_r2_path: string | null;
+  audio_status: SlokaAudioStatus;
+  audio_duration_seconds: number | null;
+  audio_file_size_bytes: number | null;
+  audio_updated_at: string | null;
   status: 'Draft' | 'Published' | 'Archived';
   created_at: string;
   updated_at: string;
@@ -385,6 +392,7 @@ export interface FestivalSettings {
 
 // Full festival with all relations (used in wizard / edit)
 export interface FestivalFull extends Festival {
+  occurrences?: FestivalOccurrence[];
   occurrence: FestivalOccurrence | null;
   content: FestivalContent | null;
   media: FestivalMedia[];

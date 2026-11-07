@@ -1,0 +1,120 @@
+{
+  "started_at": "2026-11-07T16:48:41.318Z",
+  "mode": "live authenticated API verification; not browser automation",
+  "checks": [
+    {
+      "name": "Authenticated editor login",
+      "result": "PASS",
+      "auth_user_id": "63b0fe97-86f6-4340-b17e-19942e95b93c"
+    },
+    {
+      "name": "Step 1 save and restore",
+      "result": "PASS",
+      "festival_id": "a1731fc0-27e0-4224-a961-a64d40abc786"
+    },
+    {
+      "name": "Step 2 save and restore",
+      "result": "PASS",
+      "festival_id": "a1731fc0-27e0-4224-a961-a64d40abc786"
+    },
+    {
+      "name": "Step 3 save and restore",
+      "result": "PASS",
+      "festival_id": "a1731fc0-27e0-4224-a961-a64d40abc786"
+    },
+    {
+      "name": "Step 4 save and restore",
+      "result": "PASS",
+      "festival_id": "a1731fc0-27e0-4224-a961-a64d40abc786"
+    },
+    {
+      "name": "Step 5 save and restore",
+      "result": "PASS",
+      "festival_id": "a1731fc0-27e0-4224-a961-a64d40abc786"
+    },
+    {
+      "name": "Step 6 save and restore",
+      "result": "PASS",
+      "festival_id": "a1731fc0-27e0-4224-a961-a64d40abc786"
+    },
+    {
+      "name": "Step 7 save and restore",
+      "result": "PASS",
+      "festival_id": "a1731fc0-27e0-4224-a961-a64d40abc786"
+    },
+    {
+      "name": "Step 8 save and restore",
+      "result": "PASS",
+      "festival_id": "a1731fc0-27e0-4224-a961-a64d40abc786"
+    },
+    {
+      "name": "Step 9 save and restore",
+      "result": "PASS",
+      "festival_id": "a1731fc0-27e0-4224-a961-a64d40abc786"
+    },
+    {
+      "name": "Draft hidden from anonymous customer",
+      "result": "PASS"
+    },
+    {
+      "name": "Repeated authenticated edits without duplicate children",
+      "result": "PASS",
+      "counts": {
+        "festival_occurrences": 1,
+        "festival_content": 1,
+        "festival_settings": 1
+      }
+    },
+    {
+      "name": "Server persistence failure rollback and successful retry",
+      "result": "PASS",
+      "rejected_code": "P0001"
+    },
+    {
+      "name": "Invalid-token upload rejected",
+      "result": "PASS",
+      "http": 401
+    },
+    {
+      "name": "Actual authenticated R2 upload",
+      "result": "PASS",
+      "key": "festivals/a1731fc0-27e0-4224-a961-a64d40abc786/2026/images/e8b853d8-3284-4f4c-90f0-5f218b75bb93.png",
+      "url": "https://pub-5ac331aed8ed455b8efc7bde5ffd54bf.r2.dev/festivals/a1731fc0-27e0-4224-a961-a64d40abc786/2026/images/e8b853d8-3284-4f4c-90f0-5f218b75bb93.png",
+      "http": 200
+    },
+    {
+      "name": "R2 public URL and stored object bytes",
+      "result": "PASS",
+      "http": 200,
+      "bytes": 68,
+      "content_type": "image/png"
+    },
+    {
+      "name": "media metadata persistence failure and retry",
+      "result": "FAIL",
+      "error": " Auth session missing!"
+    },
+    {
+      "name": "Fixture retained archived and inactive",
+      "result": "PASS",
+      "festival_id": "a1731fc0-27e0-4224-a961-a64d40abc786"
+    },
+    {
+      "name": "Verification account disabled and credentials invalidated",
+      "result": "PASS",
+      "auth_user_id": "63b0fe97-86f6-4340-b17e-19942e95b93c"
+    }
+  ],
+  "fixtures": {
+    "auth_user_id": "63b0fe97-86f6-4340-b17e-19942e95b93c",
+    "festival_id": "a1731fc0-27e0-4224-a961-a64d40abc786",
+    "r2_key": "festivals/a1731fc0-27e0-4224-a961-a64d40abc786/2026/images/e8b853d8-3284-4f4c-90f0-5f218b75bb93.png",
+    "public_url": "https://pub-5ac331aed8ed455b8efc7bde5ffd54bf.r2.dev/festivals/a1731fc0-27e0-4224-a961-a64d40abc786/2026/images/e8b853d8-3284-4f4c-90f0-5f218b75bb93.png"
+  },
+  "finished_at": "2026-11-07T16:48:52.915Z",
+  "unverified": [
+    "Browser wizard interaction",
+    "Customer application UI rendering",
+    "Actual network outages and lost successful HTTP responses"
+  ]
+}

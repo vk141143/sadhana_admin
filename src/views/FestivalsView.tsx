@@ -15,6 +15,7 @@ import { FestivalWizard } from '../components/FestivalWizard';
 
 export const FestivalsView: React.FC = () => {
   const [festivals, setFestivals] = useState<FestivalListItem[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [editingFestival, setEditingFestival] = useState<FestivalFull | null>(null);
@@ -22,11 +23,11 @@ export const FestivalsView: React.FC = () => {
 
   const loadFestivals = async () => {
     try {
-      setIsLoading(true);
+      setIsLoading(true); setLoadError(null);
       const { data } = await fetchFestivalList({ page: 1, limit: 50 });
       setFestivals(data);
     } catch (err) {
-      console.error('Failed to load festivals:', err);
+      setLoadError(err instanceof Error ? err.message : 'Festivals could not be loaded.');
     } finally {
       setIsLoading(false);
     }
@@ -163,6 +164,7 @@ export const FestivalsView: React.FC = () => {
         </div>
       </div>
 
+      {loadError && <p role="alert" className="text-rose-300">{loadError} <button onClick={loadFestivals}>Retry</button></p>}
       <DataTable
         title="Festivals"
         description="Manage all festivals in the system"
@@ -201,31 +203,21 @@ export const FestivalsView: React.FC = () => {
         onEdit={handleEdit}
         onDuplicate={handleDuplicate}
         onDelete={(item) => setDeleteTarget(item.id)}
-        customHeaderActions={
-          <button
-            onClick={() => { setEditingFestival(null); setWizardOpen(true); }}
-            className="px-3.5 py-2 bg-[#232a39] text-[#dce2f6] border border-white/10 text-xs font-semibold rounded-xl hover:bg-white/10 transition-all flex items-center gap-1.5"
-          >
-            <span className="material-symbols-outlined text-sm">publish</span>
-            Publish Selected
-          </button>
-        }
+
       />
 
-      <FestivalWizard
+      {wizardOpen && <FestivalWizard
         isOpen={wizardOpen}
         onClose={() => { setWizardOpen(false); setEditingFestival(null); }}
         onSuccess={loadFestivals}
         editingFestival={editingFestival}
-      />
+      />}
 
       <ConfirmModal
         isOpen={!!deleteTarget}
-        title="Delete Festival"
-        message={
-          'Are you sure you want to delete this festival?\n\nThis will permanently remove:\n• Festival information\n• Regional mappings\n• Timings\n• Media references\n• Notification configuration\n• Cloudflare R2 content'
-        }
-        confirmText="Yes, Delete Permanently"
+        title="Archive Festival"
+        message="Archive this festival? It will be hidden from the customer catalogue. Its history and media will be retained."
+        confirmText="Archive Festival"
         cancelText="Cancel"
         isHazard
         onConfirm={handleConfirmDelete}

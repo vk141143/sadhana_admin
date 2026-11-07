@@ -174,7 +174,7 @@ export const App: React.FC = () => {
       'user-journeys': 'User Journeys',
       achievements: 'Achievements', badges: 'Badges', 'streak-system': 'Streak System',
       'daily-challenges': 'Daily Challenges', 'guided-sessions': 'Guided Sessions',
-      'meditation-library': 'Meditation Library', 'recommendation-engine': 'Recommendation Engine',
+      'recommendation-engine': 'Recommendation Engine',
       'spiritual-insights': 'Spiritual Insights',
     };
     if (pending[currentTab]) return <UnavailableModule title={pending[currentTab]!} reason={currentTab === 'library'

@@ -165,6 +165,13 @@ export function createSadhanaPracticesHandler(
           'category', 'practice_mode', 'target_type', 'target_count', 'completion_rule',
           'category_config', 'guided_audio_url', 'media_type', 'media_url',
         ].some(field => Object.hasOwn(input, field)) || input.is_active === true;
+        // JSONB updates replace the entire object; preserve keys absent from a patch.
+        if (isRecord(input.category_config)) {
+          input.category_config = {
+            ...current.data.category_config,
+            ...input.category_config,
+          };
+        }
         const merged = { ...current.data, ...input };
         validatePracticeBehavior(merged, validatesBehavior);
         if (validatesBehavior) {

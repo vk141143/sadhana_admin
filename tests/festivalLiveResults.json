@@ -1,0 +1,139 @@
+{
+  "started_at": "2026-11-07T16:50:01.379Z",
+  "mode": "live authenticated API verification; not browser automation",
+  "checks": [
+    {
+      "name": "Authenticated editor login",
+      "result": "PASS",
+      "auth_user_id": "149e5cc9-027f-4389-b893-79853da7df3f"
+    },
+    {
+      "name": "Step 1 save and restore",
+      "result": "PASS",
+      "festival_id": "a70335d3-769a-46b8-837a-31e6d294bb36"
+    },
+    {
+      "name": "Step 2 save and restore",
+      "result": "PASS",
+      "festival_id": "a70335d3-769a-46b8-837a-31e6d294bb36"
+    },
+    {
+      "name": "Step 3 save and restore",
+      "result": "PASS",
+      "festival_id": "a70335d3-769a-46b8-837a-31e6d294bb36"
+    },
+    {
+      "name": "Step 4 save and restore",
+      "result": "PASS",
+      "festival_id": "a70335d3-769a-46b8-837a-31e6d294bb36"
+    },
+    {
+      "name": "Step 5 save and restore",
+      "result": "PASS",
+      "festival_id": "a70335d3-769a-46b8-837a-31e6d294bb36"
+    },
+    {
+      "name": "Step 6 save and restore",
+      "result": "PASS",
+      "festival_id": "a70335d3-769a-46b8-837a-31e6d294bb36"
+    },
+    {
+      "name": "Step 7 save and restore",
+      "result": "PASS",
+      "festival_id": "a70335d3-769a-46b8-837a-31e6d294bb36"
+    },
+    {
+      "name": "Step 8 save and restore",
+      "result": "PASS",
+      "festival_id": "a70335d3-769a-46b8-837a-31e6d294bb36"
+    },
+    {
+      "name": "Step 9 save and restore",
+      "result": "PASS",
+      "festival_id": "a70335d3-769a-46b8-837a-31e6d294bb36"
+    },
+    {
+      "name": "Draft hidden from anonymous customer",
+      "result": "PASS"
+    },
+    {
+      "name": "Repeated authenticated edits without duplicate children",
+      "result": "PASS",
+      "counts": {
+        "festival_occurrences": 1,
+        "festival_content": 1,
+        "festival_settings": 1
+      }
+    },
+    {
+      "name": "Server persistence failure rollback and successful retry",
+      "result": "PASS",
+      "rejected_code": "P0001"
+    },
+    {
+      "name": "Invalid-token upload rejected",
+      "result": "PASS",
+      "http": 401
+    },
+    {
+      "name": "Actual authenticated R2 upload",
+      "result": "PASS",
+      "key": "festivals/a70335d3-769a-46b8-837a-31e6d294bb36/2026/images/d7eeeebc-9299-4eda-8a00-8b62e39fedfb.png",
+      "url": "https://pub-5ac331aed8ed455b8efc7bde5ffd54bf.r2.dev/festivals/a70335d3-769a-46b8-837a-31e6d294bb36/2026/images/d7eeeebc-9299-4eda-8a00-8b62e39fedfb.png",
+      "http": 200
+    },
+    {
+      "name": "R2 public URL and stored object bytes",
+      "result": "PASS",
+      "http": 200,
+      "bytes": 68,
+      "content_type": "image/png"
+    },
+    {
+      "name": "Unauthenticated media metadata write rejected",
+      "result": "PASS"
+    },
+    {
+      "name": "Media metadata persistence failure and retry",
+      "result": "PASS",
+      "media_id": "08b5811d-ab3f-4053-a597-f61d2c7d894b",
+      "media_rows": 1,
+      "additional_upload_requests_on_retry": 0
+    },
+    {
+      "name": "Published active festival and related customer data visible",
+      "result": "PASS"
+    },
+    {
+      "name": "Published inactive festival and occurrences hidden",
+      "result": "PASS"
+    },
+    {
+      "name": "Archived festival and customer relationships hidden",
+      "result": "PASS"
+    },
+    {
+      "name": "Fixture retained archived and inactive",
+      "result": "PASS",
+      "festival_id": "a70335d3-769a-46b8-837a-31e6d294bb36"
+    },
+    {
+      "name": "Verification account disabled and credentials invalidated",
+      "result": "PASS",
+      "auth_user_id": "149e5cc9-027f-4389-b893-79853da7df3f"
+    }
+  ],
+  "fixtures": {
+    "auth_user_id": "149e5cc9-027f-4389-b893-79853da7df3f",
+    "festival_id": "a70335d3-769a-46b8-837a-31e6d294bb36",
+    "r2_key": "festivals/a70335d3-769a-46b8-837a-31e6d294bb36/2026/images/d7eeeebc-9299-4eda-8a00-8b62e39fedfb.png",
+    "public_url": "https://pub-5ac331aed8ed455b8efc7bde5ffd54bf.r2.dev/festivals/a70335d3-769a-46b8-837a-31e6d294bb36/2026/images/d7eeeebc-9299-4eda-8a00-8b62e39fedfb.png",
+    "media_id": "08b5811d-ab3f-4053-a597-f61d2c7d894b"
+  },
+  "finished_at": "2026-11-07T16:50:14.309Z",
+  "unverified": [
+    "Browser wizard interaction",
+    "Customer application UI rendering",
+    "Actual network outages and lost successful HTTP responses"
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "started_at": "2026-11-07T16:47:57.983Z",
+  "mode": "live authenticated API verification; not browser automation",
+  "checks": [
+    {
+      "name": "Authenticated editor login",
+      "result": "PASS",
+      "auth_user_id": "06508aa7-b4c2-4ebd-acdd-e11dde1d08c0"
+    },
+    {
+      "name": "Step 1 save and restore",
+      "result": "PASS",
+      "festival_id": "98bfd392-012d-4e62-9969-7c1c9ac01297"
+    },
+    {
+      "name": "nine step draft saves and restores",
+      "result": "FAIL",
+      "error": "content.occurrence_id\n+ actual - expected\n\n+ '59859347-b7e6-466e-a3f6-c0f2d0b8614b'\n- null\n"
+    },
+    {
+      "name": "Fixture retained archived and inactive",
+      "result": "PASS",
+      "festival_id": "98bfd392-012d-4e62-9969-7c1c9ac01297"
+    },
+    {
+      "name": "Verification account disabled and credentials invalidated",
+      "result": "PASS",
+      "auth_user_id": "06508aa7-b4c2-4ebd-acdd-e11dde1d08c0"
+    }
+  ],
+  "fixtures": {
+    "auth_user_id": "06508aa7-b4c2-4ebd-acdd-e11dde1d08c0",
+    "festival_id": "98bfd392-012d-4e62-9969-7c1c9ac01297"
+  },
+  "finished_at": "2026-11-07T16:48:09.577Z",
+  "unverified": [
+    "Browser wizard interaction",
+    "Customer application UI rendering",
+    "Actual network outages and lost successful HTTP responses"
+  ]
+}

@@ -11,6 +11,7 @@ const PRACTICE_MODES = new Set(['timer', 'repetition', 'guided_audio', 'reflecti
 const TARGET_TYPES = new Set(['none', 'duration', 'repetitions', 'entries', 'verses', 'chapters']);
 const COMPLETION_RULES = new Set(['manual', 'timer_elapsed', 'repetitions_reached', 'entries_submitted', 'audio_completed']);
 const TIMES_OF_DAY = new Set(['morning', 'afternoon', 'evening', 'anytime']);
+const MEDITATION_TYPES = new Set(['guided', 'silent', 'breath_awareness', 'concentration', 'devotional']);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -55,6 +56,18 @@ function isSadhanaPractice(value: unknown): value is SadhanaPractice {
     !optionalColumn(value, 'ambient_audio_url', candidate => candidate === null || typeof candidate === 'string') ||
     !optionalColumn(value, 'media_type', candidate => candidate === null || candidate === 'image' || candidate === 'audio') ||
     !optionalColumn(value, 'media_url', candidate => typeof candidate === 'string' || candidate === null) ||
+    !optionalColumn(value, 'meditation_category_id', candidate => candidate === null ||
+      typeof candidate === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(candidate)) ||
+    !optionalColumn(value, 'meditation_type', candidate => typeof candidate === 'string' && MEDITATION_TYPES.has(candidate)) ||
+    !optionalColumn(value, 'default_duration_seconds', candidate => Number.isSafeInteger(candidate) && Number(candidate) >= 60 && Number(candidate) <= 7200) ||
+    !optionalColumn(value, 'available_durations_seconds', candidate => Array.isArray(candidate) &&
+      candidate.length > 0 && candidate.length <= 12 && candidate.every(item =>
+        Number.isSafeInteger(item) && Number(item) >= 60 && Number(item) <= 7200) &&
+      new Set(candidate).size === candidate.length) ||
+    !optionalColumn(value, 'requires_audio', candidate => typeof candidate === 'boolean') ||
+    !optionalColumn(value, 'has_ambient_audio', candidate => typeof candidate === 'boolean') ||
+    !optionalColumn(value, 'has_bell', candidate => typeof candidate === 'boolean') ||
+    !optionalColumn(value, 'allow_silent_mode', candidate => typeof candidate === 'boolean') ||
     typeof value.display_order !== 'number' || !Number.isSafeInteger(value.display_order) ||
     value.display_order < 0 || value.display_order > 1000000 ||
     typeof value.is_active !== 'boolean' ||
@@ -62,6 +75,9 @@ function isSadhanaPractice(value: unknown): value is SadhanaPractice {
     typeof value.created_at !== 'string' ||
     typeof value.updated_at !== 'string'
   ) return false;
+  if (Array.isArray(value.available_durations_seconds) &&
+      typeof value.default_duration_seconds === 'number' &&
+      !value.available_durations_seconds.includes(value.default_duration_seconds)) return false;
   return true;
 }
 
@@ -105,6 +121,9 @@ const SELECT_COLUMNS = [
   'cover_image_url', 'guided_audio_url', 'ambient_audio_url',
   'media_type', 'media_url', 'display_order', 'is_active', 'archived_at',
   'created_at', 'updated_at',
+  'meditation_category_id', 'meditation_type', 'default_duration_seconds',
+  'available_durations_seconds', 'requires_audio', 'has_ambient_audio',
+  'has_bell', 'allow_silent_mode',
 ].join(',');
 
 export const sadhanaPracticeService = {

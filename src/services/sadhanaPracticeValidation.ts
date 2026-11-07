@@ -6,6 +6,7 @@ import {
   SADHANA_COMPLETION_RULES,
   SADHANA_TIMES_OF_DAY,
   type SadhanaPracticeMediaKind,
+  type MeditationPracticeType,
   type SadhanaPracticeCategory,
   type SadhanaPracticeDifficulty,
   type SadhanaPracticeMode,
@@ -31,7 +32,11 @@ const allowedFields = new Set([
   'benefits', 'tags', 'category_config',
   'cover_image_url', 'guided_audio_url', 'ambient_audio_url',
   'media_type', 'media_url', 'display_order', 'is_active',
+  'meditation_category_id', 'meditation_type', 'default_duration_seconds',
+  'available_durations_seconds', 'requires_audio', 'has_ambient_audio',
+  'has_bell', 'allow_silent_mode',
 ]);
+const MEDITATION_TYPES = ['guided', 'silent', 'breath_awareness', 'concentration', 'devotional'] as const;
 
 export function isPracticeId(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
@@ -154,7 +159,7 @@ function validateCategoryConfig(
   }
   const cfg = input.category_config;
   const textFields: Record<SadhanaPracticeCategory, Record<string, number>> = {
-    meditation: { breathing_guidance: 1000 },
+    meditation: { breathing_guidance: 1000, begin_instructions: 1000, end_instructions: 1000 },
     japa: {
       mantra_name: 120, mantra_text: 2000, transliteration: 2000,
       meaning: 3000, counter_instructions: 1000,
@@ -205,6 +210,10 @@ function validateCategoryConfig(
         throw new SadhanaPracticeValidationError(`category_config.${key} must be a boolean.`, 'category_config');
       }
     }
+  }
+  if (category === 'meditation' && 'meditation_style' in cfg &&
+      !['guided', 'silent', 'breathing', 'mantra', 'visualization', 'mindfulness', 'relaxation'].includes(String(cfg.meditation_style))) {
+    throw new SadhanaPracticeValidationError('Choose a supported meditation style.', 'category_config');
   }
   if (category === 'meditation' && 'is_guided' in cfg && typeof cfg.is_guided !== 'boolean') {
     throw new SadhanaPracticeValidationError('Meditation mode must be guided or silent.', 'category_config');
@@ -257,7 +266,16 @@ function validateCategoryConfig(
       throw new SadhanaPracticeValidationError('End verse must not be before start verse.', 'scripture_reference');
     }
   }
-  return cfg as SadhanaCategoryConfig;
+  const result = { ...cfg };
+  if (isRecord(cfg.localized_content)) {
+    result.localized_content = Object.fromEntries(Object.entries(cfg.localized_content)
+      .map(([language, fields]) => [language, Object.fromEntries(Object.entries(fields as Record<string, unknown>)
+        .filter(([, text]) => typeof text === 'string' && text.trim())
+        .map(([key, text]) => [key, (text as string).trim()]))])
+      .filter(([, fields]) => Object.keys(fields).length));
+    if (!Object.keys(result.localized_content as object).length) delete result.localized_content;
+  }
+  return result as SadhanaCategoryConfig;
 }
 
 export function validatePracticeBehavior(
@@ -265,8 +283,13 @@ export function validatePracticeBehavior(
   strict = true,
 ): void {
   const { category, target_type, target_count, completion_rule, practice_mode } = input;
+  validateCategoryConfig(input as Record<string, unknown>, category);
   const cfg = input.category_config;
   const config = isRecord(cfg) ? cfg : {};
+  if (input.available_durations_seconds && input.default_duration_seconds !== undefined &&
+      !input.available_durations_seconds.includes(input.default_duration_seconds)) {
+    throw new SadhanaPracticeValidationError('Default duration must be one of the available durations.', 'default_duration_seconds');
+  }
   const hasGuidedAudio = typeof input.guided_audio_url === 'string' && input.guided_audio_url.length > 0 ||
     input.media_type === 'audio' && typeof input.media_url === 'string' && input.media_url.length > 0;
 
@@ -467,12 +490,46 @@ function parseInput(value: unknown, creating: boolean): SadhanaPracticeUpdate {
   const mediaUrl = optionalHttpsUrl(value, 'media_url');
   if (mediaUrl !== undefined) input.media_url = mediaUrl;
 
+  if ('meditation_category_id' in value) {
+    if (value.meditation_category_id !== null && !isPracticeId(String(value.meditation_category_id))) {
+      throw new SadhanaPracticeValidationError('Choose a valid meditation category.');
+    }
+    input.meditation_category_id = value.meditation_category_id as string | null;
+  }
+  const meditationType = optionalEnum(value, 'meditation_type', MEDITATION_TYPES, false);
+  if (meditationType !== undefined) input.meditation_type = meditationType as MeditationPracticeType;
+  const defaultDuration = optionalInteger(value, 'default_duration_seconds', 60, 7200);
+  if (defaultDuration !== undefined) input.default_duration_seconds = defaultDuration;
+  if ('available_durations_seconds' in value) {
+    const durations = value.available_durations_seconds;
+    if (!Array.isArray(durations) || durations.length < 1 || durations.length > 12 ||
+        durations.some(item => typeof item !== 'number' || !Number.isInteger(item) || item < 60 || item > 7200) ||
+        new Set(durations).size !== durations.length) {
+      throw new SadhanaPracticeValidationError('Choose between 1 and 12 unique durations from 60 to 7200 seconds.');
+    }
+    input.available_durations_seconds = durations as number[];
+  }
+  for (const field of ['requires_audio', 'has_ambient_audio', 'has_bell', 'allow_silent_mode'] as const) {
+    if (field in value) {
+      if (typeof value[field] !== 'boolean') {
+        throw new SadhanaPracticeValidationError(`${field} must be true or false.`);
+      }
+      input[field] = value[field];
+    }
+  }
+
   const displayOrder = optionalInteger(value, 'display_order', 0, 1000000);
   if (displayOrder !== undefined) input.display_order = displayOrder;
 
   if ('is_active' in value) {
     if (typeof value.is_active !== 'boolean') throw new SadhanaPracticeValidationError('is_active must be true or false.');
     input.is_active = value.is_active;
+  }
+
+  if (input.default_duration_seconds !== undefined &&
+      input.available_durations_seconds !== undefined &&
+      !input.available_durations_seconds.includes(input.default_duration_seconds)) {
+    throw new SadhanaPracticeValidationError('Default duration must be one of the available durations.');
   }
 
   validatePracticeBehavior(input, creating);
@@ -491,6 +548,11 @@ export function parsePracticeCreate(value: unknown): SadhanaPracticeInput {
       .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 120).replace(/-$/g, '');
     if (!slug) throw new SadhanaPracticeValidationError('Provide a slug using lowercase letters and numbers.');
     parsed.slug = slug;
+  }
+  const defaultDuration = parsed.default_duration_seconds ?? 600;
+  const availableDurations = parsed.available_durations_seconds ?? [180, 300, 600, 900, 1200, 1800];
+  if (!availableDurations.includes(defaultDuration)) {
+    throw new SadhanaPracticeValidationError('Default duration must be one of the available durations.', 'default_duration_seconds');
   }
   return {
     name,
@@ -516,8 +578,16 @@ export function parsePracticeCreate(value: unknown): SadhanaPracticeInput {
     ambient_audio_url: parsed.ambient_audio_url ?? null,
     media_type: parsed.media_type ?? null,
     media_url: parsed.media_url ?? null,
+    meditation_category_id: parsed.meditation_category_id ?? null,
+    meditation_type: parsed.meditation_type ?? 'guided',
+    default_duration_seconds: defaultDuration,
+    available_durations_seconds: availableDurations,
+    requires_audio: parsed.requires_audio ?? false,
+    has_ambient_audio: parsed.has_ambient_audio ?? false,
+    has_bell: parsed.has_bell ?? true,
+    allow_silent_mode: parsed.allow_silent_mode ?? true,
     display_order: parsed.display_order ?? 0,
-    is_active: parsed.is_active ?? false,
+    is_active: false,
   };
 }
 

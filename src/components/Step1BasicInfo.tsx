@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { uploadFestivalMediaToR2 } from '../services/r2Client';
-import { insertFestivalMedia } from '../services/festivalService';
+import type { FestivalMedia } from '../types';
+import { festivalSlug } from '../services/festivalValidation';
+import { insertFestivalMedia, setCoverMedia } from '../services/festivalService';
 
 const FESTIVAL_TYPES = ['Major Festival', 'Ekadashi', 'Purnima', 'Amavasya', 'Jayanti', 'Vrata', 'Utsava', 'Other'];
 const TRADITIONS = [
@@ -16,6 +18,8 @@ const ipt = 'w-full bg-[#0c1321] border border-white/10 rounded-lg py-2 px-3 tex
 const lbl = 'text-xs font-semibold text-[#f2ca50] block mb-1.5';
 
 interface Props {
+  onUploading: (busy: boolean) => void;
+  onCover: (media: FestivalMedia) => void;
   festivalId: string | null;
   formData: any;
   setFormData: (d: any) => void;
@@ -24,34 +28,32 @@ interface Props {
 }
 
 export const Step1BasicInfo: React.FC<Props> = ({
-  festivalId, formData, setFormData, bannerUrl, setBannerUrl,
+  onUploading, onCover, festivalId, formData, setFormData, bannerUrl, setBannerUrl,
 }) => {
+  const [progress, setProgress] = useState(0);
+  const [uploadError, setUploadError] = useState('');
+  const [slugTouched, setSlugTouched] = useState(!!festivalId);
   const [uploading, setUploading] = useState(false);
 
   const set = (field: string, value: string | boolean) => setFormData({ ...formData, [field]: value });
 
   // Auto-generate slug from name
   const handleNameChange = (name: string) => {
-    const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-    setFormData({ ...formData, name, slug: formData.slug || slug });
+    setFormData({ ...formData, name, slug: slugTouched ? formData.slug : festivalSlug(name) });
   };
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!festivalId) {
-      setBannerUrl(URL.createObjectURL(file));
-      setFormData({ ...formData, _pendingBannerFile: file });
-      return;
-    }
+    if (!festivalId) { setUploadError('Save Draft before uploading the cover.'); return; }
 
     try {
-      setUploading(true);
+      setUploading(true); onUploading(true); setUploadError(''); setProgress(0);
       const slug = formData.slug || festivalId;
       const year = new Date().getFullYear();
-      const { key, url } = await uploadFestivalMediaToR2(file, slug, 'image', year);
-      await insertFestivalMedia(festivalId, {
+      const { key, url } = await uploadFestivalMediaToR2(file, festivalId, 'image', year, setProgress);
+      const saved = await insertFestivalMedia(festivalId, {
         media_type: 'image',
         r2_key: key,
         storage_key: key,
@@ -59,17 +61,19 @@ export const Step1BasicInfo: React.FC<Props> = ({
         file_name: file.name,
         mime_type: file.type,
         file_size: file.size,
-        is_cover: true,
+        is_cover: false,
         sort_order: 0,
         display_order: 0,
         title: 'Cover', description: '', language_code: '', alt_text: '', caption: '',
         duration_seconds: null, created_by: null, occurrence_id: null,
       });
+      await setCoverMedia(festivalId, saved.id);
+      onCover({ ...saved, is_cover: true });
       setBannerUrl(url);
     } catch (err) {
-      alert('Image upload failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+      setUploadError((err instanceof Error ? err.message : 'Image upload failed.') + ' Select the same file to retry; a completed upload is reused in this tab.');
     } finally {
-      setUploading(false);
+      setUploading(false); onUploading(false); e.target.value = '';
     }
   };
 
@@ -107,7 +111,7 @@ export const Step1BasicInfo: React.FC<Props> = ({
         </div>
         <div>
           <label className={lbl}>Festival Slug</label>
-          <input className={ipt} value={formData.slug || ''} onChange={e => set('slug', e.target.value)} placeholder="e.g., krishna-janmashtami" />
+          <input className={ipt} value={formData.slug || ''} onChange={e => { setSlugTouched(true); set('slug', e.target.value); }} placeholder="e.g., krishna-janmashtami" />
           <p className="text-[10px] text-[#d0c5af]/40 mt-1">Auto-generated from name. Used in URLs.</p>
         </div>
       </div>
@@ -141,7 +145,7 @@ export const Step1BasicInfo: React.FC<Props> = ({
               {!festivalId && <span className="text-[10px] text-amber-400/70 mt-1">Save Draft first to upload directly to R2</span>}
             </div>
           )}
-          <input type="file" accept="image/*" onChange={handleImageUpload} disabled={uploading} className="hidden" />
+          <input type="file" accept="image/*" onChange={handleImageUpload} disabled={uploading || !festivalId} className="hidden" />
         </label>
         {uploading && (
           <p className="text-xs text-[#f2ca50] flex items-center gap-1.5 mt-2">
@@ -150,6 +154,8 @@ export const Step1BasicInfo: React.FC<Props> = ({
         )}
       </div>
 
+      {uploadError && <p role="alert" className="text-rose-300 text-xs">{uploadError}</p>}
+      {uploading && <progress value={progress} max={100} aria-label="Cover upload progress" />}
       {/* Status & Active */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>

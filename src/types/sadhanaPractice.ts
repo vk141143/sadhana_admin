@@ -44,6 +44,12 @@ export type SadhanaTimeOfDay = (typeof SADHANA_TIMES_OF_DAY)[number];
 
 export type SadhanaPracticeMediaKind = 'image' | 'audio';
 export type SadhanaPracticeMediaSelection = 'none' | SadhanaPracticeMediaKind;
+export type MeditationPracticeType =
+  | 'guided'
+  | 'silent'
+  | 'breath_awareness'
+  | 'concentration'
+  | 'devotional';
 
 export const SADHANA_CONTENT_LANGUAGES = ['en', 'te', 'hi', 'kn', 'ta', 'ml'] as const;
 export type SadhanaContentLanguage = (typeof SADHANA_CONTENT_LANGUAGES)[number];
@@ -57,6 +63,7 @@ export type SadhanaLocalizedContent = Partial<Record<SadhanaContentLanguage, Sad
 
 // Category-specific configuration shapes stored in category_config JSONB.
 export interface MeditationConfig {
+  meditation_style?: 'guided' | 'silent' | 'breathing' | 'mantra' | 'visualization' | 'mindfulness' | 'relaxation';
   is_guided: boolean;
   breathing_guidance?: string | null;
   begin_instructions?: string | null;
@@ -129,6 +136,14 @@ export interface SadhanaPractice {
   ambient_audio_url?: string | null;
   media_type?: SadhanaPracticeMediaKind | null;
   media_url?: string | null;
+  meditation_category_id?: string | null;
+  meditation_type?: MeditationPracticeType;
+  default_duration_seconds?: number;
+  available_durations_seconds?: number[];
+  requires_audio?: boolean;
+  has_ambient_audio?: boolean;
+  has_bell?: boolean;
+  allow_silent_mode?: boolean;
   display_order: number;
   is_active: boolean;
   archived_at?: string | null;
@@ -160,6 +175,14 @@ export interface SadhanaPracticeInput {
   ambient_audio_url?: string | null;
   media_type?: SadhanaPracticeMediaKind | null;
   media_url?: string | null;
+  meditation_category_id?: string | null;
+  meditation_type?: MeditationPracticeType;
+  default_duration_seconds?: number;
+  available_durations_seconds?: number[];
+  requires_audio?: boolean;
+  has_ambient_audio?: boolean;
+  has_bell?: boolean;
+  allow_silent_mode?: boolean;
   display_order?: number;
   is_active?: boolean;
 }

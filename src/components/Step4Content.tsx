@@ -1,9 +1,11 @@
+import { parseFestivalSections } from '../services/festivalValidation';
 import React, { useState } from 'react';
 import { FestivalContent, FestivalMedia } from '../types';
 import { uploadFestivalJsonToR2 } from '../services/r2Client';
-import { insertFestivalMedia } from '../services/festivalService';
+import { insertFestivalMedia, upsertContent } from '../services/festivalService';
 
 interface Props {
+  onUploading: (busy: boolean) => void;
   festivalId: string | null;
   festivalSlug?: string;
   festivalYear?: number;
@@ -13,15 +15,13 @@ interface Props {
   setMedia: (m: FestivalMedia[]) => void;
 }
 
-const parseTextToSections = (text: string) =>
-  text.split(/\n##\s+/).filter(Boolean).map(block => {
-    const [title, ...rest] = block.split('\n');
-    return { title: title.trim(), content: rest.join('\n').trim() };
-  });
+const parseTextToSections = parseFestivalSections;
 
 export const Step4Content: React.FC<Props> = ({
-  festivalId, festivalSlug, festivalYear, content, setContent, media, setMedia,
+  onUploading, festivalId, festivalSlug, festivalYear, content, setContent, media, setMedia,
 }) => {
+  const [progress, setProgress] = useState(0);
+  const [message, setMessage] = useState('');
   const [uploading, setUploading] = useState<'story' | 'puja' | null>(null);
   const [storyText, setStoryText] = useState(
     (content.festival_story as any[])?.map((s: any) => `## ${s.title}\n${s.content}`).join('\n\n') || ''
@@ -41,24 +41,27 @@ export const Step4Content: React.FC<Props> = ({
     if (!sections.length) { alert('Add some content first.'); return; }
     const payload = { title: type === 'story' ? 'Festival Story' : 'Puja Vidhi', sections };
     try {
-      setUploading(type);
+      setUploading(type); onUploading(true); setMessage('');
       const slug = festivalSlug || festivalId;
       const year = festivalYear ?? new Date().getFullYear();
-      const { key, url } = await uploadFestivalJsonToR2(payload, slug, type, year);
+      const { key, url } = await uploadFestivalJsonToR2(payload, festivalId, type, year, setProgress);
       const saved = await insertFestivalMedia(festivalId, {
         media_type: type === 'story' ? 'story_json' : 'puja_json',
         r2_key: key, storage_key: key, public_url: url,
         file_name: type === 'story' ? 'story.json' : 'puja-vidhi.json',
-        mime_type: 'application/json', file_size: 0,
+        mime_type: 'application/json', file_size: new Blob([JSON.stringify(payload, null, 2)]).size,
         sort_order: media.length, display_order: media.length,
         title: '', description: '', language_code: '', alt_text: '', caption: '',
         duration_seconds: null, created_by: null, occurrence_id: null, is_cover: false,
       });
-      setMedia([...media.filter(m => m.media_type !== saved.media_type), saved]);
-      if (type === 'story') setField('story_r2_url', url);
-      else setField('puja_r2_url', url);
-    } catch (e) { alert('Upload failed: ' + (e instanceof Error ? e.message : 'Unknown')); }
-    finally { setUploading(null); }
+      setMedia([...media.filter(m => m.id !== saved.id), saved]);
+      const updated = { ...content, [`${type}_r2_url`]: url, [`${type}_r2_key`]: key };
+      setContent(updated);
+      const persisted = await upsertContent(festivalId, updated, content.occurrence_id);
+      setContent({ ...updated, id: persisted.id });
+      setMessage('R2 upload and content reference saved.');
+    } catch (e) { setMessage((e instanceof Error ? e.message : 'Upload failed.') + ' Retry the upload button; completed uploads are reused in this tab.'); }
+    finally { setUploading(null); onUploading(false); }
   };
 
   const noId = (
@@ -75,6 +78,8 @@ export const Step4Content: React.FC<Props> = ({
         <p className="text-xs text-[#d0c5af]/70">Description, story, and scriptural references. JSON files go to Cloudflare R2.</p>
       </div>
       {!festivalId && noId}
+      {message && <p role="status" className="text-sm text-amber-300">{message}</p>}
+      {uploading && <progress value={progress} max={100} aria-label="Content upload progress" />}
 
       <div>
         <label className="text-xs font-semibold text-[#f2ca50] block mb-1.5">Festival Description</label>
@@ -99,7 +104,7 @@ export const Step4Content: React.FC<Props> = ({
           </div>
           {content.story_r2_url && <span className="text-[10px] text-emerald-400 flex items-center gap-1"><span className="material-symbols-outlined text-xs">check_circle</span>Uploaded</span>}
         </div>
-        <textarea value={storyText} onChange={e => setStoryText(e.target.value)}
+        <textarea value={storyText} onChange={e => { setStoryText(e.target.value); setField('festival_story', parseTextToSections(e.target.value)); }}
           onBlur={() => setField('festival_story', parseTextToSections(storyText))}
           placeholder={'## The Story\nWrite here...\n\n## Significance\nWrite here...'}
           rows={6} className="w-full bg-[#19202e] border border-white/10 rounded-lg py-2 px-3 text-sm text-[#dce2f6] placeholder-[#d0c5af]/30 focus:ring-1 focus:ring-[#f2ca50] outline-none resize-none font-mono" />
@@ -120,7 +125,7 @@ export const Step4Content: React.FC<Props> = ({
           </div>
           {content.puja_r2_url && <span className="text-[10px] text-emerald-400 flex items-center gap-1"><span className="material-symbols-outlined text-xs">check_circle</span>Uploaded</span>}
         </div>
-        <textarea value={pujaText} onChange={e => setPujaText(e.target.value)}
+        <textarea value={pujaText} onChange={e => { setPujaText(e.target.value); setField('puja_vidhi', parseTextToSections(e.target.value)); }}
           onBlur={() => setField('puja_vidhi', parseTextToSections(pujaText))}
           placeholder={'## Samagri\nList items...\n\n## Puja Steps\nStep by step...'}
           rows={6} className="w-full bg-[#19202e] border border-white/10 rounded-lg py-2 px-3 text-sm text-[#dce2f6] placeholder-[#d0c5af]/30 focus:ring-1 focus:ring-[#f2ca50] outline-none resize-none font-mono" />

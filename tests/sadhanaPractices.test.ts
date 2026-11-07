@@ -1,3 +1,4 @@
+import { emptyForm, formFromPractice, inputFromForm, switchPracticeCategory } from '../src/views/cms/SadhanaPracticesView';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -114,6 +115,35 @@ const validInput = {
   display_order: 2,
 };
 
+test('creates and edits all Sadhana meditation styles with reviewed text and preserved media', async () => {
+  const { handler } = makeHarness();
+  for (const style of ['guided', 'silent', 'breathing', 'mantra', 'visualization', 'mindfulness', 'relaxation']) {
+    const config = { meditation_style: style, is_guided: style !== 'silent', breathing_guidance: 'Breathe', begin_instructions: 'Sit', end_instructions: 'Rest',
+      localized_content: { en: { meaning: ' Explanation ', instructions: ' Instructions ' }, te: { meaning: ' ', instructions: '' }, hi: { instructions: 'Reviewed Hindi' } } };
+    const created = await handler(new Request('https://example.test/sadhana-practices', {
+      method: 'POST', headers: { Authorization: 'Bearer admin' }, body: JSON.stringify({ name: `Meditation ${style}`, category: 'meditation',
+        category_config: config, guided_audio_url: 'https://media.example/guided.mp3', ambient_audio_url: 'https://media.example/ambient.mp3' }),
+    }));
+    assert.equal(created.status, 201);
+    const row = (await created.json()).practice;
+    assert.equal(row.category_config.meditation_style, style);
+    assert.equal(row.category_config.localized_content.te, undefined);
+    assert.equal(row.category_config.localized_content.en.meaning, 'Explanation');
+    const edited = await handler(new Request(`https://example.test/sadhana-practices?id=${row.id}`, {
+      method: 'PATCH', headers: { Authorization: 'Bearer admin' }, body: JSON.stringify({ category_config: { ...row.category_config, begin_instructions: 'Updated beginning' } }),
+    }));
+    assert.equal(edited.status, 200);
+    const saved = (await edited.json()).practice;
+    assert.equal(saved.guided_audio_url, row.guided_audio_url);
+    assert.equal(saved.ambient_audio_url, row.ambient_audio_url);
+    assert.equal(saved.category_config.begin_instructions, 'Updated beginning');
+    const invalid = await handler(new Request(`https://example.test/sadhana-practices?id=${row.id}`, {
+      method: 'PATCH', headers: { Authorization: 'Bearer admin' }, body: JSON.stringify({ category_config: { meditation_style: 'invalid' } }),
+    }));
+    assert.equal(invalid.status, 400);
+  }
+});
+
 test('lists persistent practice definitions from the repository', async () => {
   const { handler, rows } = makeHarness();
   rows.set(practiceId, practiceRow);
@@ -136,6 +166,38 @@ test('creates a valid practice with a stable slug and inactive default', async (
   assert.equal(rows.size, 1);
   assert.equal((body.practice as SadhanaPractice).slug, 'morning-japa');
   assert.equal((body.practice as SadhanaPractice).is_active, false);
+});
+
+test('validates meditation session types and configured duration presets', () => {
+  const parsed = parsePracticeCreate({
+    name: 'Quiet Breath',
+    category: 'meditation',
+    practice_mode: 'timer',
+    target_type: 'duration',
+    target_count: 10,
+    completion_rule: 'timer_elapsed',
+    meditation_type: 'breath_awareness',
+    default_duration_seconds: 300,
+    available_durations_seconds: [180, 300, 600],
+  });
+  assert.equal(parsed.meditation_type, 'breath_awareness');
+  assert.equal(parsed.default_duration_seconds, 300);
+  assert.deepEqual(parsed.available_durations_seconds, [180, 300, 600]);
+  assert.throws(() => parsePracticeCreate({
+    name: 'Invalid Duration',
+    category: 'meditation',
+    practice_mode: 'timer',
+    target_type: 'duration',
+    target_count: 10,
+    completion_rule: 'timer_elapsed',
+    default_duration_seconds: 301,
+    available_durations_seconds: [180, 300, 300],
+  }), SadhanaPracticeValidationError);
+  assert.throws(() => parsePracticeCreate({
+    name: 'Unsupported Type',
+    category: 'meditation',
+    meditation_type: 'chanting',
+  }), SadhanaPracticeValidationError);
 });
 
 test('edits practice instructions and category without changing the definition ID', async () => {
@@ -584,4 +646,91 @@ test('media metadata migration is additive and preserves legacy URLs', () => {
   )), 'utf8');
   assert.match(migration, /add column media_type text\s+check \(media_type in \('image', 'audio'\)\)/i);
   assert.doesNotMatch(migration, /update public\.sadhana_practices|delete from|drop /i);
+});
+
+
+test('form creates, hydrates and saves all five categories without losing configuration or media', async () => {
+  const { handler } = makeHarness();
+  for (const category of ['meditation', 'japa', 'mantra', 'gratitude', 'scripture_reading'] as const) {
+    const form = switchPracticeCategory(emptyForm(), category);
+    form.name = `Form ${category}`;
+    form.med_style = 'silent';
+    form.med_breathing = 'Slow breathing';
+    form.japa_mantra = 'Om';
+    form.japa_count_preset = '108';
+    form.japa_counter_enabled = true;
+    form.japa_mala_counter = true;
+    form.mantra_text = 'Om Shanti';
+    form.mantra_transliteration = 'om shanti';
+    form.grat_prompts = ['What brought you joy?'];
+    form.scripture_id = practiceId;
+    form.localized_content.en = { meaning: 'Reviewed explanation', instructions: 'Reviewed instructions' };
+    form.localized_content.te = { meaning: '  ', instructions: '' };
+    form.cover.url = 'https://media.example.test/cover.webp';
+    form.guided_audio.url = 'https://media.example.test/guide.mp3';
+    form.ambient_audio.url = 'https://media.example.test/ambient.mp3';
+    form.original_config = { custom_setting: { preserved: true } };
+    const send = (method: string, body: unknown, id = '') => handler(new Request(
+      `https://example.test/sadhana-practices${id ? `?id=${id}` : ''}`,
+      { method, headers: { Authorization: 'Bearer admin' }, body: JSON.stringify(body) },
+    ));
+    const created = await send('POST', inputFromForm(form));
+    assert.equal(created.status, 201);
+    const row = (await created.json()).practice as SadhanaPractice;
+    assert.equal(row.is_active, false);
+    const hydrated = formFromPractice(row);
+    assert.deepEqual(inputFromForm(hydrated).category_config, row.category_config);
+    hydrated.subtitle = 'Updated';
+    const { slug: _slug, ...update } = inputFromForm(hydrated);
+    const saved = await send('PATCH', update, row.id);
+    assert.equal(saved.status, 200, JSON.stringify(await saved.clone().json()));
+    const updated = (await saved.json()).practice;
+    assert.deepEqual(updated.category_config, row.category_config);
+    assert.equal(updated.category_config.localized_content.te, undefined);
+    assert.equal(updated.cover_image_url, form.cover.url);
+    assert.equal(updated.guided_audio_url, form.guided_audio.url);
+    assert.equal(updated.ambient_audio_url, form.ambient_audio.url);
+  }
+});
+
+test('category switching restores unsaved behavior and keeps translations isolated', () => {
+  const japa = switchPracticeCategory(emptyForm(), 'japa');
+  japa.japa_mantra = 'Om';
+  japa.practice_mode = 'repetition';
+  japa.target_type = 'repetitions';
+  japa.target_count = '108';
+  japa.target_unit = 'chants';
+  japa.completion_rule = 'repetitions_reached';
+  japa.localized_content.te.instructions = 'Reviewed Japa instructions';
+  const meditation = switchPracticeCategory(japa, 'meditation');
+  assert.equal(meditation.localized_content.te.instructions, '');
+  meditation.med_style = 'guided';
+  meditation.localized_content.en.meaning = 'Meditation explanation';
+  const restored = switchPracticeCategory(meditation, 'japa');
+  for (const key of ['practice_mode', 'target_type', 'target_count', 'target_unit', 'completion_rule', 'localized_content', 'japa_mantra'] as const) {
+    assert.deepEqual(restored[key], japa[key]);
+  }
+  const returned = switchPracticeCategory(restored, 'meditation');
+  assert.equal(returned.med_style, 'guided');
+  assert.equal(returned.localized_content.en.meaning, 'Meditation explanation');
+});
+
+test('new practices cannot bypass explicit activation', () => {
+  assert.equal(parsePracticeCreate({ ...validInput, is_active: true }).is_active, false);
+});
+
+test('partial category configuration patches retain unrelated keys', async () => {
+  const { handler, rows } = makeHarness();
+  rows.set(practiceId, { ...practiceRow, category_config: {
+    is_guided: false, breathing_guidance: 'Keep this', custom_setting: true,
+  } as SadhanaPractice['category_config'] });
+  const response = await handler(new Request(`https://example.test/sadhana-practices?id=${practiceId}`, {
+    method: 'PATCH', headers: { Authorization: 'Bearer admin' },
+    body: JSON.stringify({ category_config: { begin_instructions: 'Sit comfortably' } }),
+  }));
+  assert.equal(response.status, 200);
+  const config = (await response.json()).practice.category_config;
+  assert.equal(config.breathing_guidance, 'Keep this');
+  assert.equal(config.custom_setting, true);
+  assert.equal(config.begin_instructions, 'Sit comfortably');
 });

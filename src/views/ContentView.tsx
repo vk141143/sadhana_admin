@@ -3,6 +3,7 @@ import { ConfirmModal } from '../components/common/ConfirmModal';
 import { Scripture, Chapter, SlokaRecord, SlokaJson } from '../types';
 import { scriptureService, chapterService, slokaService, fetchSlokaJson } from '../services/contentService';
 import { uploadImageToR2, uploadScriptureImageToR2 } from '../services/r2Client';
+import { uploadSlokaAudio, removeSlokaAudio } from '../services/slokaAudioService';
 
 type CmsStatus = 'Draft' | 'Published' | 'Archived';
 
@@ -95,7 +96,15 @@ export const ContentView: React.FC = () => {
   const [chapterImageFile, setChapterImageFile] = useState<File | null>(null);
   const [scriptureImageFile, setScriptureImageFile] = useState<File | null>(null);
 
+  // ── audio upload state ────────────────────────────────────
+  const [audioFile, setAudioFile] = useState<File | null>(null);
+  const [audioPhase, setAudioPhase] = useState<'idle' | 'signing' | 'uploading' | 'verifying' | 'saving'>('idle');
+  const [audioMsg, setAudioMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const [audioRecord, setAudioRecord] = useState<SlokaRecord | null>(null);
+  const [removingAudio, setRemovingAudio] = useState(false);
+
   const fileRef = useRef<HTMLInputElement>(null);
+  const audioFileRef = useRef<HTMLInputElement>(null);
 
   // ── load scriptures ───────────────────────────────────────
   useEffect(() => {
@@ -161,14 +170,10 @@ export const ContentView: React.FC = () => {
     try {
       let cover_image_url = scriptureEdit.cover_image_url || '';
       if (scriptureImageFile) {
-        // For new scriptures we need a temp id derived from name to build the key,
-        // then after insert we get the real UUID — but we upload first using a
-        // slug so the key is still deterministic per scripture name.
         const tempId = scriptureEdit.id || scriptureEdit.name!.trim().toLowerCase().replace(/\s+/g, '-');
         cover_image_url = await uploadScriptureImageToR2(scriptureImageFile, tempId);
       }
       const saved = await scriptureService.save({ ...scriptureEdit, cover_image_url });
-      // If this was a new scripture, re-upload with the real UUID so the key is correct.
       if (scriptureImageFile && !scriptureEdit.id) {
         const finalUrl = await uploadScriptureImageToR2(scriptureImageFile, saved.id);
         await scriptureService.save({ ...saved, cover_image_url: finalUrl });
@@ -221,11 +226,23 @@ export const ContentView: React.FC = () => {
   };
 
   // ── sloka modal open ──────────────────────────────────────
-  const openAddSloka = () => { setSlokaRaw(''); setSlokaErr(''); setSlokaValid(null); setSlokaModal({ mode: 'add' }); };
+  const resetAudioState = () => {
+    setAudioFile(null);
+    setAudioPhase('idle');
+    setAudioMsg(null);
+    setAudioRecord(null);
+  };
+
+  const openAddSloka = () => {
+    setSlokaRaw(''); setSlokaErr(''); setSlokaValid(null);
+    resetAudioState();
+    setSlokaModal({ mode: 'add' });
+  };
 
   const openViewSloka = async (rec: SlokaRecord) => {
     setSlokaModal({ mode: 'view', record: rec });
     setSlokaRaw(''); setSlokaErr(''); setSlokaValid(null); setSlokaLoading(true);
+    resetAudioState(); setAudioRecord(rec);
     try { setSlokaRaw(JSON.stringify(await fetchSlokaJson(rec.json_url), null, 2)); }
     catch (e: any) { setSlokaErr(e.message); }
     finally { setSlokaLoading(false); }
@@ -234,6 +251,7 @@ export const ContentView: React.FC = () => {
   const openEditSloka = async (rec: SlokaRecord) => {
     setSlokaModal({ mode: 'edit', record: rec });
     setSlokaRaw(''); setSlokaErr(''); setSlokaValid(null); setSlokaLoading(true);
+    resetAudioState(); setAudioRecord(rec);
     try { setSlokaRaw(JSON.stringify(await fetchSlokaJson(rec.json_url), null, 2)); }
     catch (e: any) { setSlokaErr(e.message); }
     finally { setSlokaLoading(false); }
@@ -245,6 +263,8 @@ export const ContentView: React.FC = () => {
     catch (e: any) { setSlokaValid(null); setSlokaErr(e.message); }
   };
 
+  // JSON save — audio fields are never touched here.
+  // slokaService.update only writes json_url + updated_at, preserving all audio columns.
   const handleSaveSloka = async () => {
     if (!scripture || !chapter) return;
     let json: SlokaJson;
@@ -254,7 +274,11 @@ export const ContentView: React.FC = () => {
     try {
       if (slokaModal?.mode === 'edit' && slokaModal.record) {
         const updated = await slokaService.update(slokaModal.record, json);
-        setSlokas(xs => xs.map(x => x.id === updated.id ? updated : x));
+        // Merge in-session audio state so the list row stays accurate
+        const merged = audioRecord
+          ? { ...updated, audio_r2_path: audioRecord.audio_r2_path, audio_status: audioRecord.audio_status, audio_duration_seconds: audioRecord.audio_duration_seconds, audio_file_size_bytes: audioRecord.audio_file_size_bytes, audio_updated_at: audioRecord.audio_updated_at }
+          : updated;
+        setSlokas(xs => xs.map(x => x.id === merged.id ? merged : x));
         setNotice(`Sloka ${json.id} updated.`);
       } else {
         const added = await slokaService.add(chapter.id, json);
@@ -265,6 +289,45 @@ export const ContentView: React.FC = () => {
       setSlokaModal(null);
     } catch (e: any) { setSlokaErr(e.message); }
     finally { setSaving(false); }
+  };
+
+  // Audio upload: sign → PUT → verify → save metadata
+  const handleAudioUpload = async () => {
+    if (!audioFile || !audioRecord) return;
+    setAudioPhase('signing');
+    setAudioMsg(null);
+    try {
+      const updated = await uploadSlokaAudio(audioRecord, audioFile, phase => setAudioPhase(phase as any));
+      setAudioRecord(updated);
+      setSlokas(xs => xs.map(x => x.id === updated.id ? updated : x));
+      setAudioFile(null);
+      if (audioFileRef.current) audioFileRef.current.value = '';
+      setAudioMsg({ kind: 'ok', text: 'Audio uploaded and verified.' });
+    } catch (e: any) {
+      setAudioMsg({ kind: 'err', text: e?.message || 'Upload failed.' });
+    } finally {
+      setAudioPhase('idle');
+    }
+  };
+
+  // Audio remove: clear DB first, then delete R2 object
+  const handleAudioRemove = async () => {
+    if (!audioRecord) return;
+    setRemovingAudio(false);
+    setAudioPhase('saving');
+    setAudioMsg(null);
+    try {
+      const { updated, r2Error } = await removeSlokaAudio(audioRecord);
+      setAudioRecord(updated);
+      setSlokas(xs => xs.map(x => x.id === updated.id ? updated : x));
+      setAudioMsg(r2Error
+        ? { kind: 'err', text: `DB cleared but R2 deletion failed: ${r2Error}` }
+        : { kind: 'ok', text: 'Audio removed.' });
+    } catch (e: any) {
+      setAudioMsg({ kind: 'err', text: e?.message || 'Remove failed.' });
+    } finally {
+      setAudioPhase('idle');
+    }
   };
 
   // ── shared toolbar ────────────────────────────────────────
@@ -294,16 +357,123 @@ export const ContentView: React.FC = () => {
     </Card>
   );
 
+  // ── Sanskrit Audio section ────────────────────────────────
+  const audioStatusLabel: Record<string, string> = {
+    not_uploaded: 'Not uploaded',
+    uploading: 'Uploading\u2026',
+    ready: 'Ready',
+    error: 'Error',
+  };
+  const audioPhaseLabel: Record<string, string> = {
+    signing: 'Requesting upload URL\u2026',
+    uploading: 'Uploading to R2\u2026',
+    verifying: 'Verifying file\u2026',
+    saving: 'Saving metadata\u2026',
+  };
+  const isAudioBusy = audioPhase !== 'idle';
+
+  // record = the DB row as it was when the modal opened (may be undefined for add mode).
+  // audioRecord = live in-session state updated after each audio operation.
+  const SanskritAudioSection = ({ record }: { record: SlokaRecord | null }) => {
+    const cur = audioRecord ?? record;
+    const hasAudio = cur?.audio_status === 'ready' && !!cur?.audio_r2_path;
+    const publicBase = (import.meta.env.VITE_R2_PUBLIC_URL as string | undefined)?.replace(/\/+$/, '') ?? '';
+    const audioUrl = hasAudio && publicBase ? `${publicBase}/${cur!.audio_r2_path}` : null;
+
+    return (
+      <div className="border border-white/10 rounded-xl p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-semibold text-[#f2ca50]">Sanskrit Audio</p>
+          <span className={`text-[10px] px-2 py-0.5 rounded-md font-bold ${
+            cur?.audio_status === 'ready' ? 'bg-emerald-500/15 text-emerald-300' :
+            cur?.audio_status === 'error' ? 'bg-rose-500/15 text-rose-300' :
+            'bg-white/5 text-[#d0c5af]/60'
+          }`}>{audioStatusLabel[cur?.audio_status ?? 'not_uploaded']}</span>
+        </div>
+
+        {audioUrl && (
+          <div className="space-y-1">
+            <audio controls src={audioUrl} className="w-full h-8" />
+            {cur?.audio_duration_seconds != null && (
+              <p className="text-[11px] text-[#d0c5af]/60">
+                Duration: {cur.audio_duration_seconds.toFixed(1)}s
+                {cur.audio_file_size_bytes ? ` \u00b7 ${(cur.audio_file_size_bytes / 1024).toFixed(0)} KB` : ''}
+              </p>
+            )}
+          </div>
+        )}
+
+        {!record?.id ? (
+          <p className="text-[11px] text-[#d0c5af]/50 italic">Save the sloka first, then upload audio.</p>
+        ) : (
+          <>
+            <div className="space-y-1.5">
+              <input
+                ref={audioFileRef}
+                className={ipt}
+                type="file"
+                accept=".wav,audio/wav"
+                disabled={isAudioBusy}
+                onChange={e => { setAudioFile(e.target.files?.[0] || null); setAudioMsg(null); }}
+              />
+              {audioFile && (
+                <p className="text-[11px] text-[#d0c5af]/70">
+                  {audioFile.name} \u00b7 {(audioFile.size / 1024).toFixed(0)} KB
+                </p>
+              )}
+            </div>
+
+            {isAudioBusy && (
+              <p className="text-xs text-[#f2ca50] flex items-center gap-1">
+                <span className="material-symbols-outlined text-sm animate-spin">progress_activity</span>
+                {audioPhaseLabel[audioPhase]}
+              </p>
+            )}
+
+            {audioMsg && (
+              <p className={`text-xs flex items-center gap-1 ${audioMsg.kind === 'ok' ? 'text-emerald-300' : 'text-rose-300'}`}>
+                <span className="material-symbols-outlined text-sm">{audioMsg.kind === 'ok' ? 'check_circle' : 'error'}</span>
+                {audioMsg.text}
+              </p>
+            )}
+
+            <div className="flex gap-2 flex-wrap">
+              <Btn
+                className="bg-[#232a39] text-[#dce2f6] border border-white/10 disabled:opacity-40"
+                onClick={handleAudioUpload}
+                disabled={!audioFile || isAudioBusy}
+              >
+                {hasAudio ? 'Replace Audio' : 'Upload Audio'}
+              </Btn>
+              {hasAudio && (
+                <Btn
+                  className="bg-rose-500/15 text-rose-300 border border-rose-500/20 disabled:opacity-40"
+                  onClick={() => setRemovingAudio(true)}
+                  disabled={isAudioBusy}
+                >
+                  Remove Audio
+                </Btn>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    );
+  };
+
   // ── sloka JSON modal ──────────────────────────────────────
   const SlokaModal = slokaModal && (
     <Modal
-      title={slokaModal.mode === 'view' ? `View — ${slokaModal.record?.verse_id}` : slokaModal.mode === 'edit' ? `Edit — ${slokaModal.record?.verse_id}` : 'Add Sloka'}
-      onClose={() => setSlokaModal(null)}
+      title={slokaModal.mode === 'view' ? `View \u2014 ${slokaModal.record?.verse_id}` : slokaModal.mode === 'edit' ? `Edit \u2014 ${slokaModal.record?.verse_id}` : 'Add Sloka'}
+      onClose={() => { setSlokaModal(null); resetAudioState(); }}
       wide
     >
       <div className="p-5 space-y-4">
         {slokaLoading ? <Spinner /> : slokaModal.mode === 'view' ? (
-          <textarea className={`${ipt} min-h-96 font-mono`} value={slokaRaw} readOnly />
+          <>
+            <textarea className={`${ipt} min-h-96 font-mono`} value={slokaRaw} readOnly />
+            <SanskritAudioSection record={slokaModal.record ?? null} />
+          </>
         ) : (
           <>
             <p className="text-xs text-[#d0c5af]/70">
@@ -326,15 +496,16 @@ export const ContentView: React.FC = () => {
             {slokaValid && (
               <div className="rounded-xl p-3 bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-200">
                 <span className="material-symbols-outlined text-sm align-middle mr-1">check_circle</span>
-                Valid — <b>{slokaValid.id}</b> · {Object.keys(slokaValid.languages).join(', ').toUpperCase()}
+                Valid \u2014 <b>{slokaValid.id}</b> \u00b7 {Object.keys(slokaValid.languages).join(', ').toUpperCase()}
               </div>
             )}
             <div className="flex gap-3">
               <Btn className="bg-[#232a39] text-[#dce2f6] border border-white/10" onClick={handleValidate}>Validate JSON</Btn>
               <Btn className="bg-[#f2ca50] text-[#3c2f00] disabled:opacity-50" onClick={handleSaveSloka} disabled={saving || !slokaRaw.trim()}>
-                {saving ? 'Saving…' : 'Save Sloka'}
+                {saving ? 'Saving\u2026' : 'Save Sloka'}
               </Btn>
             </div>
+            <SanskritAudioSection record={slokaModal.record ?? null} />
           </>
         )}
       </div>
@@ -361,7 +532,7 @@ export const ContentView: React.FC = () => {
             <option>Draft</option><option>Published</option><option>Archived</option>
           </select>
         </Field>
-        <Btn type="submit" className="bg-[#f2ca50] text-[#3c2f00] disabled:opacity-50" disabled={saving}>{saving ? 'Saving…' : 'Save Scripture'}</Btn>
+        <Btn type="submit" className="bg-[#f2ca50] text-[#3c2f00] disabled:opacity-50" disabled={saving}>{saving ? 'Saving\u2026' : 'Save Scripture'}</Btn>
       </form>
     </Modal>
   );
@@ -386,7 +557,7 @@ export const ContentView: React.FC = () => {
             <option>Draft</option><option>Published</option><option>Archived</option>
           </select>
         </Field>
-        <Btn type="submit" className="bg-[#f2ca50] text-[#3c2f00] disabled:opacity-50" disabled={saving}>{saving ? 'Saving…' : 'Save Chapter'}</Btn>
+        <Btn type="submit" className="bg-[#f2ca50] text-[#3c2f00] disabled:opacity-50" disabled={saving}>{saving ? 'Saving\u2026' : 'Save Chapter'}</Btn>
       </form>
     </Modal>
   );
@@ -402,11 +573,22 @@ export const ContentView: React.FC = () => {
     />
   );
 
+  const RemoveAudioModal = (
+    <ConfirmModal
+      isOpen={removingAudio}
+      title="Remove Audio?"
+      message="This will clear the audio reference from the database. The R2 object will also be deleted. Continue?"
+      confirmText="Remove"
+      onCancel={() => setRemovingAudio(false)}
+      onConfirm={handleAudioRemove}
+    />
+  );
+
   // ── CHAPTER VIEW ──────────────────────────────────────────
   if (chapter && scripture) return (
     <div className="p-4 md:p-10 space-y-5 pb-28">
       <button onClick={() => { setChapter(null); clearFilters(); }} className="text-xs text-[#f2ca50]">
-        ← Back to {scripture.name}
+        \u2190 Back to {scripture.name}
       </button>
       <div className="flex justify-between items-end gap-4 flex-wrap">
         <div>
@@ -439,7 +621,7 @@ export const ContentView: React.FC = () => {
         </div>
       </Card>
 
-      <Toolbar placeholder="Search slokas…" />
+      <Toolbar placeholder="Search slokas\u2026" />
 
       {loadingSlokas ? <Spinner /> : (
         <Table headers={['Verse', 'ID', 'Sanskrit Preview', 'Status', 'Actions']} empty='No slokas yet. Click "+ Add Sloka" to add one.'>
@@ -447,7 +629,7 @@ export const ContentView: React.FC = () => {
             <tr className="border-t border-white/5" key={s.id}>
               <td className="p-4 font-bold text-[#f2ca50]">#{s.verse_number}</td>
               <td className="p-4 font-mono text-xs">{s.verse_id}</td>
-              <td className="p-4 text-[#d0c5af] max-w-xs truncate text-xs italic opacity-80">{slokaPreviews[s.id] || '—'}</td>
+              <td className="p-4 text-[#d0c5af] max-w-xs truncate text-xs italic opacity-80">{slokaPreviews[s.id] || '\u2014'}</td>
               <td className="p-4"><Badge value={s.status} /></td>
               <td className="p-4">
                 <div className="flex gap-3">
@@ -463,13 +645,14 @@ export const ContentView: React.FC = () => {
 
       {SlokaModal}
       {DeleteModal}
+      {RemoveAudioModal}
     </div>
   );
 
   // ── SCRIPTURE / CHAPTERS VIEW ─────────────────────────────
   if (scripture) return (
     <div className="p-4 md:p-10 space-y-5 pb-28">
-      <button className="text-xs text-[#f2ca50]" onClick={() => { setScripture(null); clearFilters(); }}>← Back to Content</button>
+      <button className="text-xs text-[#f2ca50]" onClick={() => { setScripture(null); clearFilters(); }}>\u2190 Back to Content</button>
       <div className="flex justify-between items-end flex-wrap gap-4">
         <div>
           <p className="text-xs text-[#d0c5af]/70">Content / {scripture.name}</p>
@@ -479,7 +662,7 @@ export const ContentView: React.FC = () => {
       </div>
 
       {notice && <div className="p-3 text-xs rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-200">{notice}</div>}
-      <Toolbar placeholder="Search chapters…" />
+      <Toolbar placeholder="Search chapters\u2026" />
 
       {loadingChapters ? <Spinner /> : (
         <Table headers={['#', 'Chapter', 'Slokas', 'Status', 'Updated', 'Actions']} empty="No chapters yet. Add your first chapter.">
@@ -517,7 +700,7 @@ export const ContentView: React.FC = () => {
       </div>
 
       {notice && <div className="p-3 text-xs rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-200">{notice}</div>}
-      <Toolbar placeholder="Search scriptures…" />
+      <Toolbar placeholder="Search scriptures\u2026" />
 
       {loadingScriptures ? <Spinner /> : (
         <Table headers={['', 'Scripture', 'Description', 'Status', 'Updated', 'Actions']} empty="No scriptures found.">
@@ -529,7 +712,7 @@ export const ContentView: React.FC = () => {
                   : <div className="w-10 h-10 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center"><span className="material-symbols-outlined text-sm text-[#d0c5af]/40">menu_book</span></div>}
               </td>
               <td className="p-4 font-semibold cursor-pointer hover:text-[#f2ca50]" onClick={() => { setScripture(s); clearFilters(); }}>{s.name}</td>
-              <td className="p-4 text-[#d0c5af] max-w-xs truncate text-xs">{s.description || '—'}</td>
+              <td className="p-4 text-[#d0c5af] max-w-xs truncate text-xs">{s.description || '\u2014'}</td>
               <td className="p-4"><Badge value={s.status} /></td>
               <td className="p-4">{new Date(s.updated_at).toLocaleDateString()}</td>
               <td className="p-4 space-x-3">

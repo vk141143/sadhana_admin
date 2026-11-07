@@ -1,8 +1,8 @@
-import React, { useState, useCallback } from 'react';
+import { validateFestival, type FestivalIssue } from '../services/festivalValidation';
+import React, { useState, useRef, useEffect } from 'react';
 import { FestivalFull, FestivalOccurrence, FestivalContent, FestivalMedia, FestivalSettings } from '../types';
 import {
-  createFestival, updateFestival,
-  upsertOccurrence, upsertContent, upsertFestivalSettings,
+  saveFestivalWizard, fetchFestivalFull,
 } from '../services/festivalService';
 import { Step1BasicInfo }       from './Step1BasicInfo';
 import { Step2DatePanchanga }   from './Step2DatePanchanga';
@@ -69,12 +69,15 @@ const emptySettings = (): Partial<FestivalSettings> => ({
 });
 
 export const FestivalWizard: React.FC<Props> = ({ isOpen, onClose, onSuccess, editingFestival }) => {
-  const [step, setStep]       = useState(1);
+  const [step, setStep]       = useState<number>(Math.max(1, Math.min(9, (editingFestival as any)?.wizard_state?.step || 1)));
   const [loading, setLoading] = useState(false);
+  const savingRef = useRef(false);
+  const [uploading, setUploading] = useState(false);
+  const [notice, setNotice] = useState('');
+  const [issues, setIssues] = useState<FestivalIssue[]>([]);
   const [error, setError]     = useState<string | null>(null);
 
   const [festivalId, setFestivalId]     = useState<string | null>(editingFestival?.id ?? null);
-  const [occurrenceId, setOccurrenceId] = useState<string | null>(editingFestival?.occurrence?.id ?? null);
 
   const [formData, setFormData] = useState<any>(editingFestival ?? {
     name: '', alternate_name: '', slug: '', festival_type: 'Major Festival',
@@ -93,51 +96,69 @@ export const FestivalWizard: React.FC<Props> = ({ isOpen, onClose, onSuccess, ed
   );
   const [bannerUrl, setBannerUrl] = useState<string>(editingFestival?.banner_url ?? '');
 
-  const saveDraftCore = useCallback(async (): Promise<string> => {
-    const payload = { ...formData, status: formData.status || 'Draft' };
-    let id = festivalId;
-    if (!id) {
-      id = await createFestival(payload);
-      setFestivalId(id);
-    } else {
-      await updateFestival(id, payload);
+  const snapshot = JSON.stringify({ formData, occurrence, content, settings });
+  const savedSnapshot = useRef(snapshot);
+  const dirty = savedSnapshot.current !== snapshot;
+  useEffect(() => {
+    const warn = (e: BeforeUnloadEvent) => { if (dirty || uploading) { e.preventDefault(); e.returnValue = ''; } };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty, uploading]);
+  const close = () => {
+    if (loading || uploading) return;
+    if (dirty && !window.confirm('Discard unsaved festival changes? Uploaded files are retained.')) return;
+    onClose();
+  };
+  const navigate = async (next: number) => {
+    if (loading || uploading) return;
+    const found = validateFestival({ festival: formData, occurrence, content, settings }, true);
+    const relevant = next > step ? found.filter(i => i.step === step) : [];
+    setIssues(relevant);
+    if (relevant.length) { setError('Please correct the highlighted fields.'); return; }
+    if (next > step && validateFestival({ festival: formData, occurrence, content, settings }).length) {
+      setStep(next); setError(null);
+      setNotice('Values retained. Correct invalid fields in the other steps before saving.');
+      return;
     }
-    return id;
-  }, [festivalId, formData]);
-
-  const handleSaveDraft = useCallback(async () => {
+    if (next > step && !(await save(formData.status || 'Draft', next))) return;
+    setStep(next); setError(null);
+  };
+  const save = async (status: 'Draft' | 'Published' | 'Archived', resumeStep = step) => {
+    if (savingRef.current || uploading) return;
+    const found = validateFestival({ festival: formData, occurrence, content, settings }, status === 'Published');
+    setIssues(found);
+    if (found.length) { setStep(found[0].step); setError('Please correct the highlighted fields.'); return; }
+    savingRef.current = true;
+    setLoading(true); setError(null); setNotice('');
     try {
-      setLoading(true); setError(null);
-      const id = await saveDraftCore();
-      if (occurrence.festival_date) {
-        const saved = await upsertOccurrence(id, occurrence);
-        setOccurrenceId(saved.id);
-      }
-      await upsertContent(id, content, occurrenceId);
-      await upsertFestivalSettings(id, settings as any);
-      alert('Festival saved as draft!');
+      const id = await saveFestivalWizard(festivalId, { festival: formData, occurrence, content, settings }, status, resumeStep, setFestivalId);
+      setFestivalId(id);
+      setFormData((previous: any) => ({ ...previous, status }));
+      savedSnapshot.current = JSON.stringify({ formData: { ...formData, status }, occurrence, content, settings });
+      setNotice(status === 'Published' ? 'Festival published.' : status === 'Archived' ? 'Festival archived.' : 'Draft saved.');
+      onSuccess();
+      // Refresh generated child IDs without replacing locally entered fields.
+      try {
+        const saved = await fetchFestivalFull(id);
+        const nextOccurrence = saved.occurrence?.id ? { ...occurrence, id: saved.occurrence.id } : occurrence;
+        const nextContent = saved.content?.id ? { ...content, id: saved.content.id, occurrence_id: saved.content.occurrence_id } : content;
+        setOccurrence(nextOccurrence);
+        setContent(nextContent);
+        savedSnapshot.current = JSON.stringify({ formData: { ...formData, status }, occurrence: nextOccurrence, content: nextContent, settings });
+      } catch { setNotice('Saved. Could not refresh generated IDs; reopen the draft when the connection recovers.'); }
+      return true;
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to save draft');
-    } finally { setLoading(false); }
-  }, [saveDraftCore, occurrence, content, occurrenceId, settings]);
-
-  const handlePublish = useCallback(async () => {
-    if (!formData.name?.trim()) { setError('Festival name is required.'); return; }
-    if (!occurrence.festival_date) { setError('Festival date is required.'); return; }
-    try {
-      setLoading(true); setError(null);
-      const id = await saveDraftCore();
-      await updateFestival(id, { status: 'Published' });
-      const saved = await upsertOccurrence(id, { ...occurrence, status: 'published' });
-      setOccurrenceId(saved.id);
-      await upsertContent(id, content, saved.id);
-      await upsertFestivalSettings(id, settings as any);
-      alert('Festival published!');
-      onSuccess(); onClose();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to publish');
-    } finally { setLoading(false); }
-  }, [formData, occurrence, content, settings, saveDraftCore, onSuccess, onClose]);
+      setError(e instanceof Error ? e.message : 'Festival could not be saved. Your changes are still here.');
+    } finally { savingRef.current = false; setLoading(false); }
+  };
+  const handleSaveDraft = () => save('Draft');
+  const handlePublish = () => save('Published');
+  const handleMedia = (items: FestivalMedia[]) => {
+    setMedia(items);
+    const cover = items.find(item => item.is_cover);
+    setBannerUrl(cover?.public_url || '');
+    setFormData((previous: any) => ({ ...previous, cover_media_id: cover?.id ?? null }));
+  };
 
   if (!isOpen) return null;
 
@@ -151,7 +172,7 @@ export const FestivalWizard: React.FC<Props> = ({ isOpen, onClose, onSuccess, ed
             <h2 className="font-serif-headline text-xl font-bold text-[#f2ca50]">
               {editingFestival ? 'Edit Festival' : 'Add New Festival'}
             </h2>
-            <button onClick={onClose} className="p-2 text-[#d0c5af] hover:text-[#f2ca50] rounded-lg hover:bg-white/10">
+            <button onClick={close} disabled={loading || uploading} className="p-2 text-[#d0c5af] hover:text-[#f2ca50] rounded-lg hover:bg-white/10">
               <span className="material-symbols-outlined">close</span>
             </button>
           </div>
@@ -160,18 +181,18 @@ export const FestivalWizard: React.FC<Props> = ({ isOpen, onClose, onSuccess, ed
             {STEPS.map((s, idx) => (
               <React.Fragment key={s.id}>
                 <button
-                  onClick={() => { setStep(s.id); setError(null); }}
+                  onClick={() => navigate(s.id)} disabled={loading || uploading}
                   title={s.title}
                   className={`flex-shrink-0 flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold transition-all ${
                     step === s.id ? 'bg-[#f2ca50] text-[#3c2f00]'
-                    : step > s.id ? 'bg-emerald-500/30 text-emerald-300'
+                    : !validateFestival({ festival: formData, occurrence, content, settings }, true).some(i => i.step === s.id) ? 'bg-emerald-500/30 text-emerald-300'
                     : 'bg-white/10 text-[#d0c5af]'
                   }`}
                 >
-                  {step > s.id ? <span className="material-symbols-outlined text-xs">check</span> : s.id}
+                  {!validateFestival({ festival: formData, occurrence, content, settings }, true).some(i => i.step === s.id) ? <span className="material-symbols-outlined text-xs">check</span> : s.id}
                 </button>
                 {idx < STEPS.length - 1 && (
-                  <div className={`flex-1 h-0.5 rounded-full min-w-[4px] transition-all ${step > s.id ? 'bg-emerald-500/40' : 'bg-white/10'}`} />
+                  <div className={`flex-1 h-0.5 rounded-full min-w-[4px] transition-all ${!validateFestival({ festival: formData, occurrence, content, settings }, true).some(i => i.step === s.id) ? 'bg-emerald-500/40' : 'bg-white/10'}`} />
                 )}
               </React.Fragment>
             ))}
@@ -185,6 +206,9 @@ export const FestivalWizard: React.FC<Props> = ({ isOpen, onClose, onSuccess, ed
             <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-300 text-xs">{error}</div>
           )}
 
+          {notice && <p role="status" className="mb-3 text-emerald-300 text-sm">{notice}</p>}
+          {issues.filter(i => i.step === step).map(i => <p key={i.field} role="alert" className="mb-2 text-rose-300 text-xs">{i.field.replaceAll('_', ' ')}: {i.message}</p>)}
+          <fieldset disabled={loading || uploading} className={`min-w-0 ${loading || uploading ? 'pointer-events-none' : ''}`}>
           {step === 1 && (
             <Step1BasicInfo
               festivalId={festivalId}
@@ -192,6 +216,8 @@ export const FestivalWizard: React.FC<Props> = ({ isOpen, onClose, onSuccess, ed
               setFormData={setFormData}
               bannerUrl={bannerUrl}
               setBannerUrl={setBannerUrl}
+              onUploading={setUploading}
+              onCover={item => handleMedia([...media.filter(m => m.id !== item.id).map(m => ({ ...m, is_cover: false })), item])}
             />
           )}
           {step === 2 && (
@@ -220,7 +246,8 @@ export const FestivalWizard: React.FC<Props> = ({ isOpen, onClose, onSuccess, ed
               content={content}
               setContent={setContent}
               media={media}
-              setMedia={setMedia}
+              setMedia={handleMedia}
+              onUploading={setUploading}
             />
           )}
           {step === 6 && (
@@ -242,7 +269,8 @@ export const FestivalWizard: React.FC<Props> = ({ isOpen, onClose, onSuccess, ed
                 festivalSlug={formData.slug || undefined}
                 festivalYear={occurrence.year}
                 media={media}
-                setMedia={setMedia}
+                setMedia={handleMedia}
+              onUploading={setUploading}
               />
               <Step10HomeSettings
                 settings={settings as FestivalSettings | null}
@@ -260,6 +288,7 @@ export const FestivalWizard: React.FC<Props> = ({ isOpen, onClose, onSuccess, ed
               bannerUrl={bannerUrl}
             />
           )}
+          </fieldset>
         </div>
 
         {/* Footer */}
@@ -267,27 +296,28 @@ export const FestivalWizard: React.FC<Props> = ({ isOpen, onClose, onSuccess, ed
           <span className="text-xs text-[#d0c5af]/50">{step} / {STEPS.length}</span>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => { if (step > 1) { setStep(s => s - 1); setError(null); } }}
-              disabled={step === 1 || loading}
+              onClick={() => navigate(step - 1)}
+              disabled={step === 1 || loading || uploading}
               className="px-4 py-2 bg-[#232a39] text-[#dce2f6] border border-white/10 rounded-xl text-sm font-semibold disabled:opacity-40 hover:bg-white/10 transition-colors"
             >Back</button>
 
             <button
               onClick={handleSaveDraft}
-              disabled={loading}
+              disabled={loading || uploading}
               className="px-4 py-2 bg-[#232a39] text-[#dce2f6] border border-white/10 rounded-xl text-sm font-semibold disabled:opacity-40 hover:bg-white/10 transition-colors"
             >{loading ? 'Saving…' : 'Save Draft'}</button>
 
+            {formData.status === 'Archived' && <button disabled={loading || uploading} onClick={() => save('Archived')} className="text-sm text-amber-300">Save as archived</button>}
             {step < STEPS.length ? (
               <button
-                onClick={() => { setStep(s => s + 1); setError(null); }}
-                disabled={loading}
+                onClick={() => navigate(step + 1)}
+                disabled={loading || uploading}
                 className="px-4 py-2 bg-[#f2ca50] text-[#3c2f00] rounded-xl text-sm font-bold disabled:opacity-40 hover:bg-[#ffe082] transition-colors"
               >Next</button>
             ) : (
               <button
                 onClick={handlePublish}
-                disabled={loading}
+                disabled={loading || uploading}
                 className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-sm font-bold disabled:opacity-40 hover:bg-emerald-500 transition-colors flex items-center gap-2"
               >
                 {loading

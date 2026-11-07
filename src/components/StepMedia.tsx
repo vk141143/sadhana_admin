@@ -4,6 +4,7 @@ import { uploadFestivalMediaToR2 } from '../services/r2Client';
 import { insertFestivalMedia, deleteFestivalMedia, setCoverMedia } from '../services/festivalService';
 
 interface Props {
+  onUploading: (busy: boolean) => void;
   festivalId: string | null;
   festivalSlug?: string;
   festivalYear?: number;
@@ -13,7 +14,9 @@ interface Props {
 
 type UploadKey = 'image' | 'audio' | 'video';
 
-export const StepMedia: React.FC<Props> = ({ festivalId, festivalSlug, festivalYear, media, setMedia }) => {
+export const StepMedia: React.FC<Props> = ({ onUploading, festivalId, festivalSlug, festivalYear, media, setMedia }) => {
+  const [progress, setProgress] = useState(0);
+  const [message, setMessage] = useState('');
   const [uploading, setUploading] = useState<UploadKey | null>(null);
 
   const noId = (
@@ -27,12 +30,12 @@ export const StepMedia: React.FC<Props> = ({ festivalId, festivalSlug, festivalY
     const files = Array.from(e.target.files || []);
     if (!files.length || !festivalId) return;
     try {
-      setUploading(type);
+      setUploading(type); onUploading(true); setMessage('');
       const slug = festivalSlug || festivalId;
       const year = festivalYear ?? new Date().getFullYear();
       const newItems: FestivalMedia[] = [];
       for (const file of files) {
-        const { key, url } = await uploadFestivalMediaToR2(file, slug, type, year);
+        const { key, url } = await uploadFestivalMediaToR2(file, festivalId, type, year, setProgress);
         const saved = await insertFestivalMedia(festivalId, {
           media_type: type,
           r2_key: key, storage_key: key, public_url: url,
@@ -43,12 +46,13 @@ export const StepMedia: React.FC<Props> = ({ festivalId, festivalSlug, festivalY
           duration_seconds: null, created_by: null, occurrence_id: null, is_cover: false,
         });
         newItems.push(saved);
+        setMedia([...media.filter(m => !newItems.some(n => n.id === m.id)), ...newItems]);
       }
-      setMedia([...media, ...newItems]);
+      setMessage('Media uploaded and saved.');
     } catch (err) {
-      alert('Upload failed: ' + (err instanceof Error ? err.message : 'Unknown'));
+      setMessage((err instanceof Error ? err.message : 'Upload failed.') + ' Select the same files to retry; completed uploads are reused in this tab.');
     } finally {
-      setUploading(null);
+      setUploading(null); onUploading(false);
       e.target.value = '';
     }
   };
@@ -99,6 +103,8 @@ export const StepMedia: React.FC<Props> = ({ festivalId, festivalSlug, festivalY
       </div>
 
       {!festivalId && noId}
+      {message && <p role="status" className="text-sm text-amber-300">{message}</p>}
+      {uploading && <progress value={progress} max={100} aria-label="Media upload progress" />}
 
       {/* Images */}
       <div className="p-4 bg-[#0c1321] rounded-xl border border-white/10 space-y-3">

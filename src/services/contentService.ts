@@ -1,5 +1,5 @@
 import { supabase } from './supabaseClient';
-import { Scripture, Chapter, SlokaRecord, SlokaJson } from '../types';
+import { Scripture, Chapter, SlokaRecord, SlokaAudioStatus, SlokaJson } from '../types';
 import { deleteFromR2 } from './r2Client';
 
 const err = (e: any) => { throw new Error(e?.message || JSON.stringify(e)); };
@@ -107,18 +107,41 @@ export const slokaService = {
     if (record.verse_id !== json.id || record.verse_number !== json.verse_number) {
       throw new Error('The sloka ID and verse number cannot be changed while editing an existing sloka.');
     }
-
     const jsonUrl = await uploadSlokaJson(json, json.id);
+    // Preserve audio fields — only update json_url and updated_at.
     const body = { json_url: jsonUrl, updated_at: new Date().toISOString() };
     const { data, error } = await supabase.from('slokas').update(body).eq('id', record.id).select().single();
     if (error) err(error);
     await chapterService.updateSlokaCount(record.chapter_id);
     return data as SlokaRecord;
   },
+  async updateAudio(
+    slokaId: string,
+    audioR2Path: string | null,
+    audioStatus: SlokaAudioStatus,
+    durationSeconds: number | null,
+    fileSizeBytes: number | null,
+  ): Promise<SlokaRecord> {
+    const body = {
+      audio_r2_path: audioR2Path,
+      audio_status: audioStatus,
+      audio_duration_seconds: durationSeconds,
+      audio_file_size_bytes: fileSizeBytes,
+      audio_updated_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    const { data, error } = await supabase.from('slokas').update(body).eq('id', slokaId).select().single();
+    if (error) err(error);
+    return data as SlokaRecord;
+  },
   async delete(record: SlokaRecord): Promise<void> {
     // Delete JSON from R2
     const key = `slokas/${record.verse_id.replace(/\./g, '/')}.json`;
     await deleteFromR2(key);
+    // Delete audio from R2 if present
+    if (record.audio_r2_path) {
+      try { await deleteFromR2(record.audio_r2_path); } catch { /* non-fatal */ }
+    }
     const { error } = await supabase.from('slokas').delete().eq('id', record.id);
     if (error) err(error);
     await chapterService.updateSlokaCount(record.chapter_id);

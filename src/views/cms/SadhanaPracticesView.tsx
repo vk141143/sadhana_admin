@@ -69,7 +69,12 @@ export type PracticeForm = {
   is_featured: boolean;
   benefits: string[];
   tags: string[];
+  // Preserve JSON keys not owned by this editor.
+  original_config: Record<string, unknown>;
+  category_drafts: Partial<Record<SadhanaPracticeCategory, Pick<PracticeForm,
+    'practice_mode' | 'target_type' | 'target_count' | 'target_unit' | 'completion_rule' | 'localized_content'>>>;
   // category_config sub-fields
+  med_style: NonNullable<MeditationConfig['meditation_style']> | '';
   med_is_guided: boolean;
   med_breathing: string;
   med_begin_instructions: string;
@@ -164,8 +169,8 @@ export function emptyForm(): PracticeForm {
     category: 'meditation', description: '', instructions: '',
     difficulty: '', practice_mode: '', target_type: '', target_count: '',
     target_unit: '', duration_minutes: '', completion_rule: '', time_of_day: '',
-    is_featured: false, benefits: [], tags: [],
-    med_is_guided: false, med_breathing: '', med_begin_instructions: '', med_end_instructions: '',
+    is_featured: false, benefits: [], tags: [], original_config: {}, category_drafts: {},
+    med_style: '', med_is_guided: false, med_breathing: '', med_begin_instructions: '', med_end_instructions: '',
     japa_mantra_name: '', japa_mantra: '', japa_transliteration: '', japa_meaning: '',
     japa_count_preset: '', japa_counter_enabled: false, japa_mala_counter: false,
     japa_counter_instructions: japaCountingContract,
@@ -179,7 +184,7 @@ export function emptyForm(): PracticeForm {
   };
 }
 
-function formFromPractice(p: SadhanaPractice): PracticeForm {
+export function formFromPractice(p: SadhanaPractice): PracticeForm {
   const cfg = p.category_config as Record<string, unknown> | null ?? {};
   const localized = cfg.localized_content && typeof cfg.localized_content === 'object'
     ? cfg.localized_content as SadhanaLocalizedContent
@@ -193,6 +198,7 @@ function formFromPractice(p: SadhanaPractice): PracticeForm {
     };
   }
   return {
+    original_config: { ...cfg }, category_drafts: {},
     name: p.name, slug: p.slug, slugTouched: true, subtitle: p.subtitle ?? '',
     category: p.category, description: p.description, instructions: p.instructions,
     difficulty: p.difficulty ?? '', practice_mode: p.practice_mode ?? '',
@@ -200,6 +206,7 @@ function formFromPractice(p: SadhanaPractice): PracticeForm {
     target_unit: p.target_unit ?? '', duration_minutes: p.duration_minutes != null ? String(p.duration_minutes) : '',
     completion_rule: p.completion_rule ?? '', time_of_day: p.time_of_day ?? '',
     is_featured: p.is_featured ?? false, benefits: p.benefits ?? [], tags: p.tags ?? [],
+    med_style: (cfg.meditation_style as MeditationConfig['meditation_style']) ?? '',
     med_is_guided: Boolean(cfg.is_guided),
     med_breathing: typeof cfg.breathing_guidance === 'string' ? cfg.breathing_guidance : '',
     med_begin_instructions: typeof cfg.begin_instructions === 'string' ? cfg.begin_instructions : '',
@@ -239,8 +246,8 @@ function localizedContentFromForm(form: PracticeForm): SadhanaLocalizedContent |
       .filter(language => form.localized_content[language].meaning.trim() ||
         form.localized_content[language].instructions.trim())
       .map(language => [language, {
-        meaning: form.localized_content[language].meaning.trim() || null,
-        instructions: form.localized_content[language].instructions.trim() || null,
+        ...(form.localized_content[language].meaning.trim() ? { meaning: form.localized_content[language].meaning.trim() } : {}),
+        ...(form.localized_content[language].instructions.trim() ? { instructions: form.localized_content[language].instructions.trim() } : {}),
       }]),
   ) as SadhanaLocalizedContent;
   return Object.keys(localized).length ? localized : null;
@@ -250,7 +257,8 @@ function buildCategoryConfig(form: PracticeForm): Record<string, unknown> | null
   const localized_content = localizedContentFromForm(form);
   switch (form.category) {
     case 'meditation': return {
-      is_guided: form.med_is_guided,
+      ...(form.med_style ? { meditation_style: form.med_style } : {}),
+      is_guided: form.med_style === 'guided' ? true : form.med_style === 'silent' ? false : form.med_is_guided,
       breathing_guidance: form.med_breathing.trim() || null,
       begin_instructions: form.med_begin_instructions.trim() || null,
       end_instructions: form.med_end_instructions.trim() || null,
@@ -292,7 +300,7 @@ function buildCategoryConfig(form: PracticeForm): Record<string, unknown> | null
   }
 }
 
-function inputFromForm(form: PracticeForm): Omit<SadhanaPracticeInput, 'is_active'> {
+export function inputFromForm(form: PracticeForm): Omit<SadhanaPracticeInput, 'is_active'> {
   return {
     name: form.name,
     slug: form.slug || undefined,
@@ -311,7 +319,7 @@ function inputFromForm(form: PracticeForm): Omit<SadhanaPracticeInput, 'is_activ
     is_featured: form.is_featured,
     benefits: form.benefits.length ? form.benefits : null,
     tags: form.tags.length ? form.tags : null,
-    category_config: buildCategoryConfig(form),
+    category_config: { ...form.original_config, ...buildCategoryConfig(form) },
     cover_image_url: form.cover.url.trim() || null,
     guided_audio_url: form.guided_audio.url.trim() || null,
     ambient_audio_url: form.ambient_audio.url.trim() || null,
@@ -319,6 +327,25 @@ function inputFromForm(form: PracticeForm): Omit<SadhanaPracticeInput, 'is_activ
     media_url: form.media_url.trim() || null,
     display_order: form.display_order.trim() ? Number(form.display_order) : 0,
   };
+}
+
+// Keep behavior and translations per category for the lifetime of the editor.
+// Other category fields already have independent form keys.
+export function switchPracticeCategory(form: PracticeForm, category: SadhanaPracticeCategory): PracticeForm {
+  if (form.category === category) return form;
+  const category_drafts = {
+    ...form.category_drafts,
+    [form.category]: {
+      practice_mode: form.practice_mode, target_type: form.target_type,
+      target_count: form.target_count, target_unit: form.target_unit,
+      completion_rule: form.completion_rule, localized_content: form.localized_content,
+    },
+  };
+  const draft = category_drafts[category] ?? {
+    practice_mode: '', target_type: '', target_count: '', target_unit: '',
+    completion_rule: '', localized_content: emptyLocalizedDrafts(),
+  };
+  return { ...form, ...draft, category, category_drafts };
 }
 
 function errorMessage(error: unknown): string {
@@ -836,24 +863,9 @@ export const SadhanaPracticesView: React.FC = () => {
   };
 
   const changeCategory = (category: SadhanaPracticeCategory) => {
-    const practice_mode = modesForCategory(category).includes(form.practice_mode as SadhanaPracticeMode)
-      ? form.practice_mode
-      : '';
-    const target_type = targetsForCategory(category, practice_mode).includes(form.target_type as SadhanaTargetType)
-      ? form.target_type
-      : '';
-    const completion_rule = completionRulesFor(category, target_type, practice_mode, hasGuidedAudio, form.japa_counter_enabled)
-      .includes(form.completion_rule as SadhanaCompletionRule) ? form.completion_rule : '';
     setValidationError(null);
-    setForm(previous => ({
-      ...previous,
-      category,
-      target_type,
-      target_count: target_type ? previous.target_count : '',
-      target_unit: target_type ? previous.target_unit : '',
-      practice_mode,
-      completion_rule,
-    }));
+    setLocalizedLanguage('en');
+    setForm(previous => switchPracticeCategory(previous, category));
   };
 
   const changeTargetType = (target_type: SadhanaTargetType | '') => {
@@ -1289,8 +1301,18 @@ export const SadhanaPracticesView: React.FC = () => {
                     <SectionBox title="C — Category-Specific Configuration">
                       {form.category === 'meditation' && (
                         <div className="space-y-4">
+                          <Field label="Meditation style">
+                            <select value={form.med_style} onChange={e => {
+                              const style = e.target.value as PracticeForm['med_style'];
+                              setField('med_style', style);
+                              if (style === 'guided' || style === 'silent') setField('med_is_guided', style === 'guided');
+                            }} className={ic}>
+                              <option value="">Use existing guided / silent setting</option>
+                              {['guided', 'silent', 'breathing', 'mantra', 'visualization', 'mindfulness', 'relaxation'].map(style => <option key={style} value={style}>{style}</option>)}
+                            </select>
+                          </Field>
                           <div className="flex items-center gap-3">
-                            <input type="checkbox" id="med_guided" checked={form.med_is_guided}
+                            <input type="checkbox" id="med_guided" disabled={form.med_style === 'guided' || form.med_style === 'silent'} checked={form.med_is_guided}
                               onChange={e => setField('med_is_guided', e.target.checked)} className="h-4 w-4 accent-[#f2ca50]" />
                             <label htmlFor="med_guided" className="text-sm text-[#dce2f6]">Guided meditation</label>
                           </div>
@@ -1474,7 +1496,7 @@ export const SadhanaPracticesView: React.FC = () => {
                             value={form.localized_content[localizedLanguage].meaning}
                             onChange={e => setLocalizedField('meaning', e.target.value)} className={ic} />
                         </Field>
-                        <Field label={`${languageLabels[localizedLanguage]} instructions`}>
+                        <Field label={`${languageLabels[localizedLanguage]} ${form.category === 'mantra' ? 'chanting instructions' : 'instructions'}`}>
                           <textarea rows={3} maxLength={10000}
                             value={form.localized_content[localizedLanguage].instructions}
                             onChange={e => setLocalizedField('instructions', e.target.value)} className={ic} />

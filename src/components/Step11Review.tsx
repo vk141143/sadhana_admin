@@ -1,3 +1,4 @@
+import { festivalTime } from '../services/festivalValidation';
 import React from 'react';
 import { FestivalOccurrence, FestivalContent, FestivalMedia, FestivalSettings } from '../types';
 
@@ -13,7 +14,7 @@ interface Props {
 const Row: React.FC<{ label: string; value?: string | null }> = ({ label, value }) =>
   value ? <p className="text-xs text-[#d0c5af]"><span className="text-[#f2ca50]">{label}:</span> {value}</p> : null;
 
-const fmt = (ts: string | null | undefined) => ts ? ts.slice(11, 16) : '';
+const fmt = (ts: string | null | undefined) => festivalTime(ts);
 
 export const Step11Review: React.FC<Props> = ({ formData, occurrence, content, media, settings, bannerUrl }) => {
   const warnings: string[] = [];

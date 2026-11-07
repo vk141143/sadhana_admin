@@ -10,7 +10,7 @@
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
-    "check:edge": "deno check supabase/functions/admin-session/index.ts supabase/functions/admin-dashboard/index.ts supabase/functions/sadhana-practices/index.ts supabase/functions/sadhana-media/index.ts supabase/functions/r2-upload/index.ts supabase/functions/publish-content/index.ts"
+    "check:edge": "deno check supabase/functions/admin-session/index.ts supabase/functions/admin-dashboard/index.ts supabase/functions/sadhana-practices/index.ts supabase/functions/sadhana-media/index.ts supabase/functions/meditation-admin/index.ts supabase/functions/r2-upload/index.ts supabase/functions/publish-content/index.ts supabase/functions/sloka-audio/index.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1101.0",

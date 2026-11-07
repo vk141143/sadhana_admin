@@ -1,3 +1,4 @@
+import { parseFestivalSections } from '../services/festivalValidation';
 import React, { useState } from 'react';
 import { FestivalContent } from '../types';
 
@@ -30,11 +31,7 @@ export const StepPuja: React.FC<Props> = ({ content, setContent }) => {
   };
   const removeSamagri = (i: number) => set('puja_samagri', samagri.filter((_, idx) => idx !== i));
 
-  const parseVidhiText = (text: string): VidhiSection[] =>
-    text.split(/\n##\s+/).filter(Boolean).map(block => {
-      const [title, ...rest] = block.split('\n');
-      return { title: title.trim(), content: rest.join('\n').trim() };
-    });
+  const parseVidhiText = parseFestivalSections;
 
   return (
     <div className="space-y-6">
@@ -111,7 +108,7 @@ export const StepPuja: React.FC<Props> = ({ content, setContent }) => {
           className="w-full bg-[#19202e] border border-white/10 rounded-lg py-2 px-3 text-sm text-[#dce2f6] placeholder-[#d0c5af]/30 focus:ring-1 focus:ring-[#f2ca50] outline-none resize-none font-mono"
           rows={8}
           value={vidhiText}
-          onChange={e => setVidhiText(e.target.value)}
+          onChange={e => { setVidhiText(e.target.value); set('puja_vidhi', parseVidhiText(e.target.value)); }}
           onBlur={() => set('puja_vidhi', parseVidhiText(vidhiText))}
           placeholder={'## Preparation\nGather all samagri...\n\n## Sankalpa\nTake sankalpa...\n\n## Main Puja\nBegin with...'}
         />

@@ -1,3 +1,4 @@
+import { festivalFields, occurrenceFields, contentFields, settingsFields, pickFields, festivalSlug, validateFestival, type FestivalDraft } from './festivalValidation';
 /**
  * Festival Service — Supabase operations for the normalized Festival CMS.
  * Schema: festivals → festival_occurrences → festival_content + festival_media
@@ -64,7 +65,6 @@ export const fetchFestivalList = async (params: FestivalListParams = {}) => {
        festival_occurrences(festival_date, year, status)`,
       { count: 'exact' }
     )
-    .eq('is_active', true)
     .order('created_at', { ascending: false })
     .range(from, to);
 
@@ -120,24 +120,32 @@ export const fetchFestivalFull = async (id: string): Promise<FestivalFull> => {
   const [festResult, occResult, contentResult, mediaResult, settingsResult] =
     await Promise.all([
       supabase.from('festivals').select('*').eq('id', id).single(),
-      supabase.from('festival_occurrences').select('*').eq('festival_id', id).order('year', { ascending: false }).limit(1).maybeSingle(),
-      supabase.from('festival_content').select('*').eq('festival_id', id).maybeSingle(),
+      supabase.from('festival_occurrences').select('*').eq('festival_id', id).order('year', { ascending: false }),
+      supabase.from('festival_content').select('*').eq('festival_id', id).order('updated_at', { ascending: false }),
       supabase.from('festival_media').select('*').eq('festival_id', id).order('sort_order'),
       supabase.from('festival_settings').select('*').eq('festival_id', id).maybeSingle(),
     ]);
 
-  if (festResult.error) throw festResult.error;
+  for (const result of [festResult, occResult, contentResult, mediaResult, settingsResult]) {
+    if (result.error) throw result.error;
+  }
 
   const fest = festResult.data as Festival;
   // Derive banner_url from cover media for backward compat with wizard state
   const mediaList = (mediaResult.data as FestivalMedia[]) || [];
-  const coverMedia = mediaList.find(m => m.is_cover) ?? mediaList[0];
+  const coverMedia = mediaList.find(m => m.id === fest.cover_media_id) ?? mediaList.find(m => m.is_cover);
+  const contents = (contentResult.data || []) as FestivalContent[];
+  const state = (fest as any).wizard_state;
+  const occurrences = (occResult.data || []) as FestivalOccurrence[];
+  const selectedOccurrence = occurrences.find(o => o.id === (state?.occurrence_id ?? state?.occurrence_draft?.id)) ?? occurrences[0] ?? null;
+  const selectedContent = contents.find(c => c.occurrence_id === selectedOccurrence?.id) ?? contents.find(c => !c.occurrence_id) ?? null;
 
   return {
     ...fest,
     banner_url: coverMedia?.public_url ?? '',
-    occurrence: (occResult.data as FestivalOccurrence | null) ?? null,
-    content: (contentResult.data as FestivalContent | null) ?? null,
+    occurrences,
+    occurrence: state?.occurrence_draft ?? selectedOccurrence,
+    content: selectedContent,
     media: mediaList,
     settings: (settingsResult.data as FestivalSettings | null) ?? null,
   };
@@ -160,7 +168,7 @@ export const createFestival = async (payload: Partial<Festival>): Promise<string
       associated_deities: payload.associated_deities ?? [],
       tradition: payload.tradition || 'general',
       short_description: payload.short_description || '',
-      is_active: true,
+      is_active: payload.is_active ?? true,
       status: 'Draft',
       updated_at: new Date().toISOString(),
     })
@@ -173,23 +181,12 @@ export const createFestival = async (payload: Partial<Festival>): Promise<string
 // ── Update festival core ──────────────────────────────────────────────────────
 
 export const updateFestival = async (id: string, payload: Partial<Festival>): Promise<void> => {
-  // Strip any legacy columns that no longer exist in the DB after migration 014
-  const {
-    banner_url, banner_storage_key,
-    story_url, story_storage_key,
-    puja_url, puja_storage_key,
-    story_audio_url, story_audio_key,
-    story_video_url, story_video_key,
-    tithi, paksha, tithi_start, tithi_end,
-    nakshatra, nakshatra_start, nakshatra_end,
-    yoga, karana, festival_date, description,
-    ...safe
-  } = payload as any;
+  const safe = { ...pickFields(payload, festivalFields), ...(payload.status ? { status: payload.status } : {}) };
 
   const { error } = await supabase
     .from('festivals')
     .update({ ...safe, updated_at: new Date().toISOString() })
-    .eq('id', id);
+    .eq('id', id).select('id').single();
   if (error) throw error;
 };
 
@@ -199,28 +196,32 @@ export const upsertOccurrence = async (
   festivalId: string,
   payload: Partial<FestivalOccurrence>,
 ): Promise<FestivalOccurrence> => {
-  const year = payload.year || new Date().getFullYear();
+  const year = payload.year;
+  if (!payload.festival_date || !year) throw new Error('A real festival date and year are required for an occurrence.');
 
-  const { data: existing } = await supabase
+  const { data: existing, error: lookupError } = await supabase
     .from('festival_occurrences')
     .select('id')
     .eq('festival_id', festivalId)
     .eq('year', year)
     .maybeSingle();
+  if (lookupError) throw lookupError;
 
   const body = {
-    ...payload,
+    ...pickFields(payload, occurrenceFields),
+    ...(payload.status ? { status: payload.status } : {}),
     festival_id: festivalId,
     year,
-    festival_date: payload.festival_date || new Date().toISOString().split('T')[0],
+    festival_date: payload.festival_date,
     updated_at: new Date().toISOString(),
   };
 
-  if (existing?.id) {
+  if (payload.id || existing?.id) {
     const { data, error } = await supabase
       .from('festival_occurrences')
       .update(body)
-      .eq('id', existing.id)
+      .eq('id', payload.id || existing!.id)
+      .eq('festival_id', festivalId)
       .select()
       .single();
     if (error) throw error;
@@ -228,7 +229,7 @@ export const upsertOccurrence = async (
   } else {
     const { data, error } = await supabase
       .from('festival_occurrences')
-      .insert({ ...body, created_at: new Date().toISOString() })
+      .upsert(body, { onConflict: 'festival_id,year' })
       .select()
       .single();
     if (error) throw error;
@@ -253,16 +254,22 @@ export const upsertContent = async (
   payload: Partial<FestivalContent>,
   occurrenceId?: string | null,
 ): Promise<FestivalContent> => {
-  const { data: existing } = await supabase
+  const targetOccurrenceId = occurrenceId ?? payload.occurrence_id ?? null;
+
+  const { data: rows, error: lookupError } = await supabase
     .from('festival_content')
-    .select('id')
-    .eq('festival_id', festivalId)
-    .maybeSingle();
+    .select('id, occurrence_id')
+    .eq('festival_id', festivalId);
+  if (lookupError) throw lookupError;
+
+  const existing = rows?.find((row: any) => row.id === payload.id)
+    ?? rows?.find((row: any) => row.occurrence_id === targetOccurrenceId)
+    ?? rows?.find((row: any) => row.occurrence_id == null);
 
   const body = {
-    ...payload,
+    ...pickFields(payload, contentFields),
     festival_id: festivalId,
-    occurrence_id: occurrenceId ?? null,
+    occurrence_id: targetOccurrenceId,
     updated_at: new Date().toISOString(),
   };
 
@@ -292,6 +299,14 @@ export const insertFestivalMedia = async (
   festivalId: string,
   media: Omit<FestivalMedia, 'id' | 'festival_id' | 'created_at' | 'updated_at'>,
 ): Promise<FestivalMedia> => {
+  // Reconcile a previous insert whose successful response may have been lost.
+  const key = media.r2_key || media.storage_key;
+  if (key) {
+    const { data: existing, error } = await supabase.from('festival_media').select('*')
+      .eq('festival_id', festivalId).eq('r2_key', key).limit(1).maybeSingle();
+    if (error) throw error;
+    if (existing) return existing as FestivalMedia;
+  }
   const { data, error } = await supabase
     .from('festival_media')
     .insert({
@@ -337,11 +352,8 @@ export const deleteFestivalMedia = async (mediaId: string): Promise<void> => {
 };
 
 export const setCoverMedia = async (festivalId: string, mediaId: string): Promise<void> => {
-  await supabase.from('festival_media').update({ is_cover: false }).eq('festival_id', festivalId);
-  await supabase.from('festival_media').update({ is_cover: true }).eq('id', mediaId);
-  await supabase.from('festivals')
-    .update({ cover_media_id: mediaId, updated_at: new Date().toISOString() })
-    .eq('id', festivalId);
+  const { error } = await supabase.rpc('set_festival_cover', { p_festival_id: festivalId, p_media_id: mediaId });
+  if (error) throw error;
 };
 
 // ── Settings ──────────────────────────────────────────────────────────────────
@@ -350,27 +362,15 @@ export const upsertFestivalSettings = async (
   festivalId: string,
   settings: Omit<FestivalSettings, 'id' | 'festival_id' | 'created_at' | 'updated_at'>,
 ): Promise<void> => {
-  const { data: existing } = await supabase
-    .from('festival_settings')
-    .select('id')
-    .eq('festival_id', festivalId)
-    .maybeSingle();
-
-  const payload = { ...settings, festival_id: festivalId, updated_at: new Date().toISOString() };
-
-  if (existing?.id) {
-    const { error } = await supabase.from('festival_settings').update(payload).eq('id', existing.id);
-    if (error) throw error;
-  } else {
-    const { error } = await supabase.from('festival_settings').insert(payload);
-    if (error) throw error;
-  }
+  const payload = { ...pickFields(settings, settingsFields), festival_id: festivalId, updated_at: new Date().toISOString() };
+  const { error } = await supabase.from('festival_settings').upsert(payload, { onConflict: 'festival_id' });
+  if (error) throw error;
 };
 
 // ── Delete ────────────────────────────────────────────────────────────────────
 
 export const deleteFestival = async (id: string): Promise<void> => {
-  const { error } = await supabase.from('festivals').delete().eq('id', id);
+  const { error } = await supabase.from('festivals').update({ status: 'Archived', is_active: false }).eq('id', id);
   if (error) throw error;
 };
 
@@ -405,8 +405,69 @@ export const duplicateFestival = async (sourceId: string): Promise<string> => {
 
 // ── Publish / Unpublish ───────────────────────────────────────────────────────
 
-export const publishFestival = async (id: string): Promise<void> =>
-  updateFestival(id, { status: 'Published' } as any);
+export async function saveFestivalWizard(id: string | null, draft: FestivalDraft, status: Festival['status'], step: number, onParentSaved?: (id: string) => void): Promise<string> {
+  const festival = draft.festival ?? {};
+  const occurrence = draft.occurrence ?? {};
+  const content = draft.content ?? {};
+  const settings = draft.settings ?? {};
 
-export const unpublishFestival = async (id: string): Promise<void> =>
-  updateFestival(id, { status: 'Draft' } as any);
+  const issues = validateFestival({ festival, occurrence, content, settings }, status === 'Published');
+  if (issues.length) throw new Error(issues[0].message);
+
+  const festivalPayload = {
+    ...pickFields(festival, festivalFields),
+    slug: festival.slug || festivalSlug(festival.name || ''),
+  };
+  const occurrencePayload = {
+    ...pickFields(occurrence, occurrenceFields),
+    ...(occurrence.id ? { id: occurrence.id } : {}),
+  };
+  const contentPayload = {
+    ...pickFields(content, contentFields),
+    ...(content.id ? { id: content.id } : {}),
+  };
+  const settingsPayload = pickFields(settings, settingsFields);
+
+  const { data, error } = await supabase.rpc('save_festival_wizard', {
+    p_id: id, p_festival: festivalPayload, p_occurrence: occurrencePayload,
+    p_content: contentPayload, p_settings: settingsPayload, p_status: status, p_step: step,
+  });
+  if (!error) {
+    if (typeof data !== 'string') throw new Error('Festival save did not return an ID.');
+    onParentSaved?.(data);
+    return data;
+  }
+  // Never retry authorization, validation, or ambiguous network failures as writes.
+  if (!['PGRST202', '42883'].includes(error.code)) {
+    throw new Error(error.code === '23505' ? 'This slug or occurrence year already exists. Choose a unique value.' : error.message);
+  }
+  const fallbackId = id ?? await createFestival(festivalPayload);
+  onParentSaved?.(fallbackId); // Retain the real parent ID even if a child save fails.
+  await updateFestival(fallbackId, { ...festivalPayload, status: 'Draft' });
+  let savedOccurrenceId: string | null = null;
+  if (occurrence.festival_date) {
+    const saved = await upsertOccurrence(fallbackId, {
+      ...occurrencePayload,
+      status: status === 'Published' ? 'published' : status === 'Archived' ? 'archived' : 'draft',
+    });
+    savedOccurrenceId = saved.id;
+  }
+  await upsertContent(fallbackId, contentPayload, savedOccurrenceId ?? content.occurrence_id ?? null);
+  await upsertFestivalSettings(fallbackId, settingsPayload as FestivalSettings);
+  const { error: finalError } = await supabase.from('festivals').update({
+    status,
+    wizard_state: { step, occurrence_id: savedOccurrenceId, occurrence_draft: savedOccurrenceId ? null : occurrencePayload },
+  }).eq('id', fallbackId).select('id').single();
+  if (finalError) throw new Error(finalError.code === '42703'
+    ? 'Draft save is incomplete: deploy festival wizard migration 023 to enable draft resume. Your entered values and festival ID are retained.'
+    : `Festival save is incomplete. Your draft ID is retained; retry Save Draft. ${finalError.message}`);
+  return fallbackId;
+}
+
+export const publishFestival = async (id: string): Promise<void> => {
+  const full = await fetchFestivalFull(id);
+  await saveFestivalWizard(id, { festival: full, occurrence: full.occurrence ?? {}, content: full.content ?? {}, settings: full.settings ?? {} }, 'Published', 9);
+};
+export const unpublishFestival = async (id: string): Promise<void> => {
+  await updateFestival(id, { status: 'Draft' });
+};

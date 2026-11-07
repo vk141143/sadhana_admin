@@ -1,3 +1,4 @@
+import { festivalUploadIdentity, validateFestivalMedia } from '../../../src/services/festivalMediaValidation.ts';
 import { S3Client, DeleteObjectCommand, PutObjectCommand } from 'npm:@aws-sdk/client-s3@3.1101.0';
 import { requireAdmin } from '../_shared/requireAdmin.ts';
 import { AccessError } from '../_shared/adminPolicy.ts';
@@ -11,14 +12,34 @@ Deno.serve(async request => {
     const { db, user } = await requireAdmin(request, true);
     const r2 = new S3Client({ region: 'auto', endpoint: `https://${Deno.env.get('R2_ACCOUNT_ID')}.r2.cloudflarestorage.com`, credentials: { accessKeyId: Deno.env.get('R2_ACCESS_KEY_ID')!, secretAccessKey: Deno.env.get('R2_SECRET_ACCESS_KEY')! } });
     const bucket = Deno.env.get('R2_BUCKET')!;
-    if (request.method === 'DELETE') { const { key } = await request.json(); if (!safeKey(key)) return reply({ error: 'Invalid key.' }, 400); await r2.send(new DeleteObjectCommand({ Bucket: bucket, Key: key })); return reply({ ok: true }); }
+    if (request.method === 'DELETE') { const { key } = await request.json(); if (!safeKey(key)) return reply({ error: 'Invalid key.' }, 400); if (key.startsWith('festivals/')) return reply({ error: 'Festival files are retained; remove the media reference instead.' }, 400); await r2.send(new DeleteObjectCommand({ Bucket: bucket, Key: key })); return reply({ ok: true }); }
     const key = request.headers.get('x-r2-key') || '';
     if (!safeKey(key)) return reply({ error: 'Invalid key.' }, 400);
     const contentType = request.headers.get('content-type') || 'application/octet-stream';
+    let festivalFolder: string | undefined;
+    if (key.startsWith('festivals/')) {
+      try {
+        const { identity, folder } = festivalUploadIdentity(key);
+        festivalFolder = folder;
+        const isId = /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(identity);
+        const { data, error } = await db.from('festivals').select('id').eq(isId ? 'id' : 'slug', identity).maybeSingle();
+        if (error || !data) return reply({ error: 'Save the festival draft before uploading.' }, 400);
+        const size = Number(request.headers.get('content-length'));
+        if (size) validateFestivalMedia(contentType, size, folder);
+      } catch (error) { return reply({ error: error instanceof Error ? error.message : 'Invalid festival file.' }, 400); }
+    }
+    const bytes = new Uint8Array(await request.arrayBuffer());
+    if (festivalFolder) {
+      try {
+        validateFestivalMedia(contentType, bytes.byteLength, festivalFolder);
+        if (contentType === 'application/json') JSON.parse(new TextDecoder().decode(bytes));
+      } catch (error) { return reply({ error: error instanceof Error ? error.message : 'Invalid festival file.' }, 400); }
+    }
     await r2.send(new PutObjectCommand({
       Bucket: bucket,
       Key: key,
-      Body: new Uint8Array(await request.arrayBuffer()),
+      Body: bytes,
+      ...(festivalFolder ? { IfNoneMatch: '*' } : {}),
       ContentType: contentType,
       ...(contentType === 'application/json' ? { CacheControl: 'public, max-age=0, must-revalidate' } : {}),
     }));
